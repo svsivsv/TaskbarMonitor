@@ -120,7 +120,7 @@ namespace TaskbarMonitor
         private ContextMenuStrip BuildContextMenu()
         {
             ContextMenuStrip menu = new ContextMenuStrip();
-            menu.Items.Add("설정 열기", null, delegate { ShowSettings(); });
+            menu.Items.Add("위젯 설정 수정", null, delegate { ShowSettings(); });
             menu.Items.Add("상세 그래프 열기/닫기", null, delegate { ToggleDetail(); });
             menu.Items.Add("위젯 표시/숨기기", null, delegate { ToggleWidget(); });
             menu.Items.Add(new ToolStripSeparator());
@@ -133,6 +133,13 @@ namespace TaskbarMonitor
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("종료", null, delegate { Shutdown(); });
             return menu;
+        }
+
+        public void ShowWidgetContextMenu(Control source, Point location)
+        {
+            if (source == null || source.IsDisposed) return;
+            if (contextMenu.Visible) contextMenu.Close();
+            contextMenu.Show(source, location);
         }
 
         private void TrayIconMouseClick(object sender, MouseEventArgs e)
@@ -306,10 +313,9 @@ namespace TaskbarMonitor
             bar = new MetricBarControl();
             bar.Dock = DockStyle.Fill;
             bar.MouseClick += BarMouseClick;
+            bar.MouseUp += BarMouseUp;
             bar.MouseDoubleClick += BarMouseDoubleClick;
             Controls.Add(bar);
-            ContextMenuStrip = owner.SharedContextMenu;
-            bar.ContextMenuStrip = owner.SharedContextMenu;
         }
 
         protected override bool ShowWithoutActivation { get { return true; } }
@@ -327,6 +333,12 @@ namespace TaskbarMonitor
         private void BarMouseClick(object sender, MouseEventArgs e)
         {
             if (e.Button == MouseButtons.Left && e.Clicks == 1) host.ToggleDetail();
+        }
+
+        private void BarMouseUp(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Right)
+                host.ShowWidgetContextMenu(bar, new Point(e.X, e.Y));
         }
 
         private void BarMouseDoubleClick(object sender, MouseEventArgs e)

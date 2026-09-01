@@ -27,6 +27,7 @@ namespace TaskbarMonitor
         private readonly CheckBox startupInput;
         private readonly CheckBox showSettingsInput;
         private readonly CheckBox seamlessInput;
+        private readonly ToolTip helpTip;
         private MetricSnapshot lastSnapshot;
         private MetricHistory lastHistory;
         private bool loading;
@@ -40,11 +41,18 @@ namespace TaskbarMonitor
             Text = "Taskbar Monitor 설정";
             Icon = IconFactory.CreateGraphIcon(Color.FromArgb(0, 183, 195));
             StartPosition = FormStartPosition.CenterScreen;
-            Size = new Size(800, 810);
-            MinimumSize = new Size(760, 750);
+            Size = new Size(800, 920);
+            MinimumSize = new Size(760, 850);
             AutoScaleMode = AutoScaleMode.Dpi;
             Font = new Font("Segoe UI", 9.0f);
             BackColor = Color.FromArgb(245, 245, 245);
+            helpTip = new ToolTip();
+            helpTip.ToolTipTitle = "설정 설명";
+            helpTip.ToolTipIcon = ToolTipIcon.Info;
+            helpTip.InitialDelay = 300;
+            helpTip.ReshowDelay = 100;
+            helpTip.AutoPopDelay = 12000;
+            helpTip.ShowAlways = true;
 
             Label title = new Label();
             title.Text = "표시할 항목과 그래프를 선택하세요";
@@ -54,7 +62,7 @@ namespace TaskbarMonitor
             Controls.Add(title);
 
             Label explanation = new Label();
-            explanation.Text = "항목별로 숫자와 그래프를 따로 켜고 끌 수 있습니다. 설정은 저장 후 언제든 다시 바꿀 수 있습니다.";
+            explanation.Text = "항목별로 숫자와 그래프를 따로 켜고 끌 수 있습니다. 각 설정 위에 마우스를 올리면 상세 설명이 표시됩니다.";
             explanation.AutoSize = true;
             explanation.ForeColor = Color.DimGray;
             explanation.Location = new Point(20, 46);
@@ -144,10 +152,28 @@ namespace TaskbarMonitor
             table.Controls.Add(checks, 0, 5);
             table.SetColumnSpan(checks, 4);
 
+            ConfigureHelpText();
+
+            GroupBox helpGroup = new GroupBox();
+            helpGroup.Text = "설정 도움말";
+            helpGroup.Location = new Point(18, 692);
+            helpGroup.Size = new Size(748, 112);
+            helpGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            Label helpText = new Label();
+            helpText.Dock = DockStyle.Fill;
+            helpText.Padding = new Padding(10, 5, 10, 5);
+            helpText.TextAlign = ContentAlignment.MiddleLeft;
+            helpText.Text =
+                "권장값은 갱신 1000ms, 그래프 기록 60초입니다. 갱신 값을 낮추면 더 빠르게 반응하지만 CPU 사용량이 늘 수 있습니다.\r\n" +
+                "최대 너비·왼쪽 여백은 배치 범위, 내부 항목 폭·높이는 작업 표시줄 안쪽 칸 크기를 조절합니다.\r\n" +
+                "‘표시 + 클릭 통과’는 전체화면 위에 보이되 마우스 입력을 뒤 앱으로 넘깁니다. 위 옵션에 마우스를 올리면 더 자세히 볼 수 있습니다.";
+            helpGroup.Controls.Add(helpText);
+            Controls.Add(helpGroup);
+
             FlowLayoutPanel bottom = new FlowLayoutPanel();
             bottom.FlowDirection = FlowDirection.RightToLeft;
             bottom.WrapContents = false;
-            bottom.Location = new Point(18, 707);
+            bottom.Location = new Point(18, 827);
             bottom.Size = new Size(748, 43);
             bottom.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
             Button startButton = NewButton("저장하고 표시 시작", SaveAndStart);
@@ -180,16 +206,19 @@ namespace TaskbarMonitor
             grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             grid.BackgroundColor = Color.White;
             grid.BorderStyle = BorderStyle.FixedSingle;
+            grid.ShowCellToolTips = true;
 
             DataGridViewCheckBoxColumn enabled = new DataGridViewCheckBoxColumn();
             enabled.Name = "Enabled";
             enabled.HeaderText = "표시";
+            enabled.ToolTipText = "이 항목 전체를 위젯에 표시하거나 숨깁니다.";
             enabled.FillWeight = 48;
             grid.Columns.Add(enabled);
 
             DataGridViewTextBoxColumn name = new DataGridViewTextBoxColumn();
             name.Name = "Name";
             name.HeaderText = "항목";
+            name.ToolTipText = "측정 대상입니다. CPU, 메모리, 디스크, 네트워크, GPU를 지원합니다.";
             name.ReadOnly = true;
             name.FillWeight = 88;
             grid.Columns.Add(name);
@@ -197,24 +226,28 @@ namespace TaskbarMonitor
             DataGridViewTextBoxColumn label = new DataGridViewTextBoxColumn();
             label.Name = "Label";
             label.HeaderText = "표시 이름";
+            label.ToolTipText = "위젯에 보일 짧은 이름입니다. 셀을 클릭해 직접 바꿀 수 있습니다.";
             label.FillWeight = 78;
             grid.Columns.Add(label);
 
             DataGridViewCheckBoxColumn value = new DataGridViewCheckBoxColumn();
             value.Name = "Value";
             value.HeaderText = "숫자";
+            value.ToolTipText = "현재 사용률이나 전송 속도를 숫자로 표시합니다.";
             value.FillWeight = 48;
             grid.Columns.Add(value);
 
             DataGridViewCheckBoxColumn graph = new DataGridViewCheckBoxColumn();
             graph.Name = "Graph";
             graph.HeaderText = "그래프";
+            graph.ToolTipText = "설정한 기록 시간만큼의 변화 추이를 미니 그래프로 표시합니다.";
             graph.FillWeight = 55;
             grid.Columns.Add(graph);
 
             DataGridViewComboBoxColumn style = new DataGridViewComboBoxColumn();
             style.Name = "Style";
             style.HeaderText = "그래프 형태";
+            style.ToolTipText = "선은 가장 가볍고, 채움은 변화량이 잘 보이며, 막대는 순간값 비교에 좋습니다.";
             style.Items.AddRange("선", "채움", "막대");
             style.FillWeight = 85;
             grid.Columns.Add(style);
@@ -222,6 +255,7 @@ namespace TaskbarMonitor
             DataGridViewButtonColumn color = new DataGridViewButtonColumn();
             color.Name = "Color";
             color.HeaderText = "색상";
+            color.ToolTipText = "항목 이름과 그래프에 사용할 색상을 선택합니다.";
             color.Text = "선택";
             color.UseColumnTextForButtonValue = true;
             color.FillWeight = 58;
@@ -234,6 +268,26 @@ namespace TaskbarMonitor
             };
             grid.DataError += delegate(object sender, DataGridViewDataErrorEventArgs e) { e.ThrowException = false; };
             return grid;
+        }
+
+        private void ConfigureHelpText()
+        {
+            helpTip.SetToolTip(metricGrid, "표시 이름은 직접 수정할 수 있습니다. 숫자와 그래프는 서로 독립적으로 켜고 끌 수 있습니다.");
+            helpTip.SetToolTip(intervalInput, "값을 다시 읽는 주기입니다. 1000ms를 권장합니다. 200~500ms는 더 부드럽지만 CPU 사용량이 늘 수 있습니다.");
+            helpTip.SetToolTip(historyInput, "미니 그래프가 기억하는 과거 시간입니다. 60초를 권장하며, 길게 잡을수록 메모리를 조금 더 사용합니다.");
+            helpTip.SetToolTip(widthInput, "위젯이 차지할 수 있는 최대 가로 폭입니다. 항목이 잘리면 늘리고 작업표시줄이 좁으면 줄이세요.");
+            helpTip.SetToolTip(offsetInput, "작업표시줄 왼쪽 끝에서 위젯이 시작할 위치입니다. 날씨 버튼과 시작 버튼 사이 배치를 미세 조정할 때 사용합니다.");
+            helpTip.SetToolTip(opacityInput, "패널 배경의 불투명도입니다. 작업 표시줄 위 모드에서 효과가 크며, 무배경 결합 모드에서는 영향이 적습니다.");
+            helpTip.SetToolTip(fontInput, "항목 이름과 숫자의 글자 크기입니다. 칸이 좁을 때는 8~9 정도가 보기 좋습니다.");
+            helpTip.SetToolTip(positionInput, "안쪽은 위젯을 실제 작업표시줄에 결합하고, 위쪽은 작업표시줄 바로 위에 독립 창으로 표시합니다.");
+            helpTip.SetToolTip(fullscreenInput, "숨기기: 전체화면에서 감춤 / 항상 표시: 위에 유지 / 클릭 통과: 보이지만 마우스 입력은 전체화면 앱으로 전달합니다.");
+            helpTip.SetToolTip(insideItemWidthInput, "작업표시줄 안쪽 모드에서 CPU·RAM 등 항목 하나가 차지할 기준 폭입니다. 폭이 작으면 이름이 짧게 표시됩니다.");
+            helpTip.SetToolTip(insideHeightInput, "작업표시줄 안쪽 위젯의 높이입니다. 기본 28px이며 작업표시줄 높이를 넘지 않도록 자동 제한됩니다.");
+            helpTip.SetToolTip(autoFitInput, "날씨 버튼과 시작 버튼 사이의 실제 빈 공간에 맞춰 항목 폭을 자동으로 줄입니다.");
+            helpTip.SetToolTip(pauseHiddenInput, "위젯이 보이지 않을 때 갱신 주기를 5초로 늦춰 CPU 사용량을 줄입니다.");
+            helpTip.SetToolTip(startupInput, "Windows 로그인 후 저장된 설정으로 위젯을 자동 실행합니다.");
+            helpTip.SetToolTip(showSettingsInput, "EXE를 직접 실행했을 때 위젯보다 설정창을 먼저 엽니다. Windows 자동 시작에는 적용되지 않습니다.");
+            helpTip.SetToolTip(seamlessInput, "패널 배경과 테두리를 투명 처리해 작업표시줄 글자·그래프만 보이게 합니다.");
         }
 
         private void LoadMetricRows()
