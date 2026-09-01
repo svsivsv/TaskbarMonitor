@@ -2,13 +2,11 @@
 
 Windows 작업 표시줄에 CPU, 메모리, 디스크, 네트워크, GPU 사용량과 미니 그래프를 표시하는 가벼운 네이티브 앱입니다.
 
-현재 버전: **0.3**
-
-![Taskbar Monitor preview](docs/taskbar-preview.png)
+현재 버전: **0.3.1**
 
 ## 실행
 
-아래 빌드 명령을 실행한 뒤 `publish\TaskbarMonitor.exe`를 실행합니다. 기본 설정에서는 실행할 때마다 항목 선택 화면이 먼저 열립니다.
+`publish\TaskbarMonitor.exe`를 실행합니다. 기본 설정에서는 실행할 때마다 항목 선택 화면이 먼저 열립니다.
 
 - 한 번 클릭: 상세 그래프 열기/닫기
 - 더블클릭: 작업 관리자 열기
@@ -42,6 +40,11 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 Windows 기본 .NET Framework 컴파일러를 사용하므로 별도 Python 또는 .NET SDK가 필요하지 않습니다.
 
 ## 변경 기록
+
+### 0.3.1
+
+- 바탕화면의 `Progman/WorkerW` 창을 전체화면 앱으로 오인해 위젯이 숨겨지던 문제 수정
+- 기본·보조 작업 표시줄 창을 전체화면 판정에서 제외
 
 ### 0.3
 

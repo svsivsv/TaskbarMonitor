@@ -98,7 +98,11 @@ namespace TaskbarMonitor
                     report["networkDownloadBytes"] = snapshot.NetworkDownloadBytes;
                     report["networkUploadBytes"] = snapshot.NetworkUploadBytes;
                     report["gpuPercent"] = snapshot.GpuPercent;
-                    report["success"] = snapshot.MemoryTotalGb > 0.0 && snapshot.CpuPercent >= 0.0 && snapshot.CpuPercent <= 100.0;
+                    IntPtr desktopWindow = NativeMethods.FindWindow("Progman", null);
+                    bool desktopExcluded = !NativeMethods.IsWindowFullscreen(desktopWindow);
+                    report["desktopExcludedFromFullscreen"] = desktopExcluded;
+                    report["success"] = snapshot.MemoryTotalGb > 0.0 && snapshot.CpuPercent >= 0.0 &&
+                        snapshot.CpuPercent <= 100.0 && desktopExcluded;
                 }
             }
             catch (Exception ex)

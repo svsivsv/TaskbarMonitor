@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows.Forms;
 
 namespace TaskbarMonitor
@@ -87,6 +88,15 @@ namespace TaskbarMonitor
         public static extern IntPtr GetForegroundWindow();
 
         [DllImport("user32.dll")]
+        private static extern IntPtr GetDesktopWindow();
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetShellWindow();
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetClassName(IntPtr hwnd, StringBuilder className, int maximumCount);
+
+        [DllImport("user32.dll")]
         public static extern bool IsWindowVisible(IntPtr hwnd);
 
         [DllImport("user32.dll")]
@@ -153,7 +163,13 @@ namespace TaskbarMonitor
         public static bool IsForegroundFullscreen(params IntPtr[] ignoredWindows)
         {
             IntPtr foreground = GetForegroundWindow();
+            return IsWindowFullscreen(foreground, ignoredWindows);
+        }
+
+        public static bool IsWindowFullscreen(IntPtr foreground, params IntPtr[] ignoredWindows)
+        {
             if (foreground == IntPtr.Zero || !IsWindowVisible(foreground)) return false;
+            if (IsDesktopOrTaskbarWindow(foreground)) return false;
             if (ignoredWindows != null)
             {
                 foreach (IntPtr ignored in ignoredWindows)
@@ -168,6 +184,18 @@ namespace TaskbarMonitor
             const int tolerance = 2;
             return rect.Left <= bounds.Left + tolerance && rect.Top <= bounds.Top + tolerance &&
                    rect.Right >= bounds.Right - tolerance && rect.Bottom >= bounds.Bottom - tolerance;
+        }
+
+        private static bool IsDesktopOrTaskbarWindow(IntPtr hwnd)
+        {
+            if (hwnd == GetDesktopWindow() || hwnd == GetShellWindow()) return true;
+            StringBuilder className = new StringBuilder(256);
+            if (GetClassName(hwnd, className, className.Capacity) <= 0) return false;
+            string value = className.ToString();
+            return String.Equals(value, "Progman", StringComparison.OrdinalIgnoreCase) ||
+                   String.Equals(value, "WorkerW", StringComparison.OrdinalIgnoreCase) ||
+                   String.Equals(value, "Shell_TrayWnd", StringComparison.OrdinalIgnoreCase) ||
+                   String.Equals(value, "Shell_SecondaryTrayWnd", StringComparison.OrdinalIgnoreCase);
         }
 
         public static string GetForegroundProcessName()
