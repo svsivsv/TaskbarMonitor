@@ -57,6 +57,42 @@ namespace TaskbarMonitor
         }
     }
 
+    internal sealed class DisplayMetricItem
+    {
+        public MetricOption Option { get; set; }
+        public string DiskName { get; set; }
+
+        public string Label
+        {
+            get
+            {
+                if (!String.IsNullOrEmpty(DiskName)) return DiskName;
+                return Option == null ? String.Empty : Option.Label;
+            }
+        }
+    }
+
+    internal static class DisplayMetricBuilder
+    {
+        public static List<DisplayMetricItem> Build(AppSettings settings)
+        {
+            List<DisplayMetricItem> items = new List<DisplayMetricItem>();
+            if (settings == null || settings.Metrics == null) return items;
+            foreach (MetricOption option in settings.Metrics.Where(delegate(MetricOption m) { return m.Enabled; })
+                .OrderBy(delegate(MetricOption m) { return m.Order; }))
+            {
+                if (option.Kind == MetricKind.Disk && settings.SelectedDisks != null && settings.SelectedDisks.Count > 0)
+                {
+                    foreach (string diskName in settings.SelectedDisks)
+                        items.Add(new DisplayMetricItem { Option = option, DiskName = diskName });
+                }
+                else
+                    items.Add(new DisplayMetricItem { Option = option });
+            }
+            return items;
+        }
+    }
+
     public sealed class MetricBarControl : Control
     {
         private AppSettings settings;
@@ -64,6 +100,10 @@ namespace TaskbarMonitor
         private MetricHistory history;
         private bool integratedStyle;
         private Color integratedBackColor;
+        private Rectangle previousPageBounds;
+        private Rectangle nextPageBounds;
+        private int pageIndex;
+        private int pageCount;
 
         public MetricBarControl()
         {
@@ -81,12 +121,13 @@ namespace TaskbarMonitor
             settings = newSettings ?? AppSettings.CreateDefault();
             snapshot = newSnapshot ?? new MetricSnapshot();
             history = newHistory ?? new MetricHistory();
+            Cursor = settings.WidgetInteractionEnabled ? Cursors.Hand : Cursors.Default;
             Invalidate();
         }
 
         public int GetPreferredWidth()
         {
-            int count = settings.Metrics.Count(delegate(MetricOption m) { return m.Enabled; });
+            int count = DisplayMetricBuilder.Build(settings).Count;
             if (integratedStyle) return Math.Max(120, Math.Min(settings.MaxWidth, 4 + count * settings.InsideItemWidth));
             return Math.Max(160, Math.Min(settings.MaxWidth, 22 + count * 104));
         }
@@ -109,8 +150,7 @@ namespace TaskbarMonitor
             if (!integratedStyle)
                 using (Pen pen = new Pen(border)) graphics.DrawRectangle(pen, 0, 0, Math.Max(0, Width - 1), Math.Max(0, Height - 1));
 
-            List<MetricOption> metrics = settings.Metrics.Where(delegate(MetricOption m) { return m.Enabled; })
-                .OrderBy(delegate(MetricOption m) { return m.Order; }).ToList();
+            List<DisplayMetricItem> metrics = DisplayMetricBuilder.Build(settings);
             if (metrics.Count == 0)
             {
                 TextRenderer.DrawText(graphics, "표시할 항목을 선택하세요", Font, ClientRectangle, foreground,
@@ -119,24 +159,74 @@ namespace TaskbarMonitor
             }
 
             int usableWidth = Math.Max(1, Width - 2);
-            int itemWidth = settings.AutoFit ? usableWidth / metrics.Count : 104;
+            int targetWidth = integratedStyle ? settings.InsideItemWidth : 104;
+            bool overflow = settings.OverflowPaging && metrics.Count * targetWidth > usableWidth;
+            int navigationWidth = overflow ? (integratedStyle ? 18 : 24) : 0;
+            int contentWidth = Math.Max(1, usableWidth - navigationWidth * 2);
+            int itemsPerPage = overflow ? Math.Max(1, contentWidth / Math.Max(48, targetWidth)) : metrics.Count;
+            pageCount = overflow ? Math.Max(1, (int)Math.Ceiling(metrics.Count / (double)itemsPerPage)) : 1;
+            if (pageIndex >= pageCount) pageIndex = pageCount - 1;
+            if (pageIndex < 0) pageIndex = 0;
+            int first = overflow ? pageIndex * itemsPerPage : 0;
+            int shown = Math.Min(itemsPerPage, metrics.Count - first);
+            int itemWidth = overflow || settings.AutoFit ? Math.Max(1, contentWidth / Math.Max(1, itemsPerPage)) : targetWidth;
+            previousPageBounds = overflow ? new Rectangle(1, 1, navigationWidth, Math.Max(1, Height - 2)) : Rectangle.Empty;
+            nextPageBounds = overflow ? new Rectangle(Width - navigationWidth - 1, 1, navigationWidth, Math.Max(1, Height - 2)) : Rectangle.Empty;
+            if (overflow) DrawNavigation(graphics, foreground);
             float labelSize = integratedStyle ? Math.Max(7.0f, settings.FontSize - 0.7f) : settings.FontSize;
             using (Font labelFont = new Font("Segoe UI", labelSize, FontStyle.Regular, GraphicsUnit.Point))
             using (Font valueFont = new Font("Segoe UI", Math.Max(7.0f, labelSize - 0.4f), FontStyle.Bold, GraphicsUnit.Point))
             {
-                for (int index = 0; index < metrics.Count; index++)
+                for (int visibleIndex = 0; visibleIndex < shown; visibleIndex++)
                 {
-                    int x = 1 + index * itemWidth;
-                    int width = index == metrics.Count - 1 && settings.AutoFit ? Width - x - 1 : itemWidth;
-                    if (x >= Width - 2) break;
-                    Rectangle bounds = new Rectangle(x, 1, Math.Max(1, Math.Min(width, Width - x - 1)), Math.Max(1, Height - 2));
-                    DrawMetric(graphics, bounds, metrics[index], labelFont, valueFont, foreground, border);
+                    int x = 1 + navigationWidth + visibleIndex * itemWidth;
+                    int rightLimit = Width - navigationWidth - 1;
+                    int width = visibleIndex == shown - 1 && (overflow || settings.AutoFit) ? rightLimit - x : itemWidth;
+                    if (x >= rightLimit) break;
+                    Rectangle bounds = new Rectangle(x, 1, Math.Max(1, Math.Min(width, rightLimit - x)), Math.Max(1, Height - 2));
+                    DrawMetric(graphics, bounds, metrics[first + visibleIndex], labelFont, valueFont, foreground, border);
                 }
             }
         }
 
-        private void DrawMetric(Graphics graphics, Rectangle bounds, MetricOption option, Font labelFont, Font valueFont, Color foreground, Color border)
+        private void DrawNavigation(Graphics graphics, Color foreground)
         {
+            Color arrowColor = Color.FromArgb(210, foreground);
+            using (Font navigationFont = new Font("Segoe UI", integratedStyle ? 12.0f : 14.0f, FontStyle.Bold, GraphicsUnit.Point))
+            {
+                TextRenderer.DrawText(graphics, "‹", navigationFont, previousPageBounds, arrowColor,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                TextRenderer.DrawText(graphics, "›", navigationFont, nextPageBounds, arrowColor,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            }
+        }
+
+        public bool TryNavigate(Point location)
+        {
+            if (pageCount <= 1) return false;
+            if (previousPageBounds.Contains(location))
+            {
+                pageIndex = (pageIndex - 1 + pageCount) % pageCount;
+                Invalidate();
+                return true;
+            }
+            if (nextPageBounds.Contains(location))
+            {
+                pageIndex = (pageIndex + 1) % pageCount;
+                Invalidate();
+                return true;
+            }
+            return false;
+        }
+
+        public bool IsNavigationPoint(Point location)
+        {
+            return pageCount > 1 && (previousPageBounds.Contains(location) || nextPageBounds.Contains(location));
+        }
+
+        private void DrawMetric(Graphics graphics, Rectangle bounds, DisplayMetricItem item, Font labelFont, Font valueFont, Color foreground, Color border)
+        {
+            MetricOption option = item.Option;
             if (bounds.Left > 1 && !integratedStyle)
             {
                 using (Pen separator = new Pen(Color.FromArgb(55, foreground)))
@@ -146,8 +236,8 @@ namespace TaskbarMonitor
             Rectangle inner = new Rectangle(bounds.Left + padding, bounds.Top + 1, Math.Max(1, bounds.Width - padding * 2), Math.Max(1, bounds.Height - 2));
             bool veryNarrow = bounds.Width < 62;
             bool compact = bounds.Width < 92;
-            string label = veryNarrow ? ShortLabel(option.Kind) : option.Label;
-            string value = option.ShowValue ? snapshot.FormatValue(option.Kind, true) : String.Empty;
+            string label = veryNarrow ? ShortLabel(item) : item.Label;
+            string value = option.ShowValue ? snapshot.FormatValue(option, true, item.DiskName) : String.Empty;
             int graphThreshold = integratedStyle ? 20 : 25;
             int textHeight = option.ShowGraph && inner.Height >= graphThreshold ? (integratedStyle ? 13 : 16) : inner.Height;
             Rectangle labelRect = new Rectangle(inner.Left, inner.Top, Math.Max(1, inner.Width / 2), textHeight);
@@ -161,7 +251,8 @@ namespace TaskbarMonitor
             if (option.ShowGraph && inner.Height >= graphThreshold && (!veryNarrow || settings.AutoFit))
             {
                 Rectangle graphRect = new Rectangle(inner.Left, inner.Top + textHeight + 1, inner.Width, Math.Max(2, inner.Height - textHeight - 2));
-                GraphRenderer.Draw(graphics, graphRect, history.GetValues(option.Kind), option,
+                IList<double> values = String.IsNullOrEmpty(item.DiskName) ? history.GetValues(option.Kind) : history.GetDiskValues(item.DiskName);
+                GraphRenderer.Draw(graphics, graphRect, values, option,
                     integratedStyle ? Color.Transparent : Color.FromArgb(28, foreground));
             }
             else if (!option.ShowValue && compact)
@@ -172,9 +263,10 @@ namespace TaskbarMonitor
             }
         }
 
-        private static string ShortLabel(MetricKind kind)
+        private static string ShortLabel(DisplayMetricItem item)
         {
-            switch (kind)
+            if (!String.IsNullOrEmpty(item.DiskName)) return item.DiskName.TrimEnd(':');
+            switch (item.Option.Kind)
             {
                 case MetricKind.Cpu: return "C";
                 case MetricKind.Memory: return "M";
@@ -206,7 +298,7 @@ namespace TaskbarMonitor
             settings = newSettings ?? AppSettings.CreateDefault();
             snapshot = newSnapshot ?? new MetricSnapshot();
             history = newHistory ?? new MetricHistory();
-            int count = Math.Max(1, settings.Metrics.Count(delegate(MetricOption m) { return m.Enabled; }));
+            int count = Math.Max(1, DisplayMetricBuilder.Build(settings).Count);
             Height = 24 + count * 94;
             Invalidate();
         }
@@ -219,26 +311,28 @@ namespace TaskbarMonitor
             Color foreground = Color.FromArgb(settings.ForegroundArgb);
             using (Brush brush = new SolidBrush(background)) graphics.FillRectangle(brush, ClientRectangle);
 
-            List<MetricOption> metrics = settings.Metrics.Where(delegate(MetricOption m) { return m.Enabled; })
-                .OrderBy(delegate(MetricOption m) { return m.Order; }).ToList();
+            List<DisplayMetricItem> metrics = DisplayMetricBuilder.Build(settings);
             using (Font titleFont = new Font("Segoe UI", 10.5f, FontStyle.Bold))
             using (Font valueFont = new Font("Segoe UI", 9.0f, FontStyle.Regular))
             {
                 int y = 12;
-                foreach (MetricOption option in metrics)
+                foreach (DisplayMetricItem item in metrics)
                 {
+                    MetricOption option = item.Option;
                     Rectangle row = new Rectangle(12, y, Math.Max(40, Width - 24), 82);
-                    string title = String.Equals(option.DisplayName, option.Label, StringComparison.OrdinalIgnoreCase)
-                        ? option.Label : option.DisplayName + " · " + option.Label;
+                    string itemLabel = item.Label;
+                    string title = String.IsNullOrEmpty(item.DiskName) && String.Equals(option.DisplayName, itemLabel, StringComparison.OrdinalIgnoreCase)
+                        ? itemLabel : option.DisplayName + " · " + itemLabel;
                     TextRenderer.DrawText(graphics, title, titleFont,
                         new Rectangle(row.Left, row.Top, row.Width / 2, 20), option.Color,
                         TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
-                    TextRenderer.DrawText(graphics, snapshot.FormatValue(option.Kind, false), valueFont,
+                    TextRenderer.DrawText(graphics, snapshot.FormatValue(option, false, item.DiskName), valueFont,
                         new Rectangle(row.Left + row.Width / 2, row.Top, row.Width / 2, 20), foreground,
                         TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
                     Rectangle graph = new Rectangle(row.Left, row.Top + 24, row.Width, 52);
                     using (Brush graphBack = new SolidBrush(Color.FromArgb(40, foreground))) graphics.FillRectangle(graphBack, graph);
-                    GraphRenderer.Draw(graphics, graph, history.GetValues(option.Kind), option, Color.FromArgb(32, foreground));
+                    IList<double> values = String.IsNullOrEmpty(item.DiskName) ? history.GetValues(option.Kind) : history.GetDiskValues(item.DiskName);
+                    GraphRenderer.Draw(graphics, graph, values, option, Color.FromArgb(32, foreground));
                     y += 94;
                 }
             }

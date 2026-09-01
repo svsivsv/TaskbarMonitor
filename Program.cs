@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
@@ -93,6 +94,7 @@ namespace TaskbarMonitor
             try
             {
                 AppSettings settings = AppSettings.CreateDefault();
+                settings.SelectedDisks = AppSettings.GetAvailableDiskNames();
                 using (MetricSampler sampler = new MetricSampler())
                 {
                     sampler.Sample(settings);
@@ -103,14 +105,21 @@ namespace TaskbarMonitor
                     report["memoryUsedGb"] = snapshot.MemoryUsedGb;
                     report["memoryTotalGb"] = snapshot.MemoryTotalGb;
                     report["diskPercent"] = snapshot.DiskPercent;
+                    report["diskPercents"] = snapshot.DiskPercents;
+                    report["selectedDisks"] = settings.SelectedDisks;
                     report["networkDownloadBytes"] = snapshot.NetworkDownloadBytes;
                     report["networkUploadBytes"] = snapshot.NetworkUploadBytes;
                     report["gpuPercent"] = snapshot.GpuPercent;
                     IntPtr desktopWindow = NativeMethods.FindWindow("Progman", null);
                     bool desktopExcluded = !NativeMethods.IsWindowFullscreen(desktopWindow);
                     report["desktopExcludedFromFullscreen"] = desktopExcluded;
+                    MetricOption memoryOption = settings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Memory; });
+                    memoryOption.ValueFormat = "UsedTotalGb";
+                    bool memoryFormatSupported = snapshot.FormatValue(memoryOption, true, null).Contains("/");
+                    report["memoryFormatSupported"] = memoryFormatSupported;
                     report["success"] = snapshot.MemoryTotalGb > 0.0 && snapshot.CpuPercent >= 0.0 &&
-                        snapshot.CpuPercent <= 100.0 && desktopExcluded;
+                        snapshot.CpuPercent <= 100.0 && desktopExcluded && memoryFormatSupported &&
+                        snapshot.DiskPercents != null && snapshot.DiskPercents.Count == settings.SelectedDisks.Count;
                 }
             }
             catch (Exception ex)
@@ -128,6 +137,8 @@ namespace TaskbarMonitor
             Directory.CreateDirectory(directory);
             AppSettings settings = AppSettings.CreateDefault();
             settings.MaxWidth = 900;
+            settings.SelectedDisks = new List<string> { "C:", "E:" };
+            settings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Memory; }).ValueFormat = "UsedTotalGb";
             MetricHistory history = new MetricHistory();
             history.Configure(60, 1000);
             for (int index = 0; index < 60; index++)
@@ -135,6 +146,8 @@ namespace TaskbarMonitor
                 history.AddSynthetic(MetricKind.Cpu, 28 + Math.Sin(index / 4.0) * 18 + (index % 13 == 0 ? 35 : 0));
                 history.AddSynthetic(MetricKind.Memory, 47 + Math.Sin(index / 12.0) * 3);
                 history.AddSynthetic(MetricKind.Disk, Math.Max(0, Math.Sin(index / 3.5) * 30));
+                history.AddSyntheticDisk("C:", Math.Max(0, Math.Sin(index / 3.5) * 30));
+                history.AddSyntheticDisk("E:", Math.Max(0, Math.Cos(index / 4.2) * 24));
                 history.AddSynthetic(MetricKind.Network, 80000 + Math.Abs(Math.Sin(index / 5.0)) * 850000);
                 history.AddSynthetic(MetricKind.Gpu, 15 + Math.Abs(Math.Sin(index / 6.0)) * 42);
             }
@@ -145,6 +158,8 @@ namespace TaskbarMonitor
             snapshot.MemoryUsedGb = 15.4;
             snapshot.MemoryTotalGb = 31.8;
             snapshot.DiskPercent = 9;
+            snapshot.DiskPercents["C:"] = 9;
+            snapshot.DiskPercents["E:"] = 4;
             snapshot.NetworkDownloadBytes = 756000;
             snapshot.NetworkUploadBytes = 96000;
             snapshot.GpuPercent = 43;
@@ -157,6 +172,24 @@ namespace TaskbarMonitor
                 {
                     bar.DrawToBitmap(image, new Rectangle(Point.Empty, image.Size));
                     image.Save(Path.Combine(directory, "bar-preview.png"));
+                }
+            }
+            using (MetricBarControl pagedBar = new MetricBarControl())
+            {
+                settings.MaxWidth = 300;
+                pagedBar.Size = new Size(300, 48);
+                pagedBar.SetIntegratedStyle(true, Color.FromArgb(31, 31, 31));
+                pagedBar.Configure(settings, snapshot, history);
+                using (Bitmap image = new Bitmap(pagedBar.Width, pagedBar.Height))
+                {
+                    pagedBar.DrawToBitmap(image, new Rectangle(Point.Empty, image.Size));
+                    image.Save(Path.Combine(directory, "bar-preview-paged.png"));
+                }
+                pagedBar.TryNavigate(new Point(pagedBar.Width - 5, pagedBar.Height / 2));
+                using (Bitmap image = new Bitmap(pagedBar.Width, pagedBar.Height))
+                {
+                    pagedBar.DrawToBitmap(image, new Rectangle(Point.Empty, image.Size));
+                    image.Save(Path.Combine(directory, "bar-preview-paged-next.png"));
                 }
             }
             using (DetailGraphControl detail = new DetailGraphControl())

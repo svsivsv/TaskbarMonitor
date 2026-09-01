@@ -8,12 +8,18 @@ namespace TaskbarMonitor
 {
     public sealed class MetricSnapshot
     {
+        public MetricSnapshot()
+        {
+            DiskPercents = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        }
+
         public DateTime Timestamp { get; set; }
         public double CpuPercent { get; set; }
         public double MemoryPercent { get; set; }
         public double MemoryUsedGb { get; set; }
         public double MemoryTotalGb { get; set; }
         public double DiskPercent { get; set; }
+        public Dictionary<string, double> DiskPercents { get; set; }
         public double NetworkDownloadBytes { get; set; }
         public double NetworkUploadBytes { get; set; }
         public double GpuPercent { get; set; }
@@ -52,6 +58,26 @@ namespace TaskbarMonitor
             }
         }
 
+        public string FormatValue(MetricOption option, bool compact, string diskName)
+        {
+            if (option == null) return "-";
+            if (option.Kind == MetricKind.Memory)
+            {
+                if (String.Equals(option.ValueFormat, "UsedGb", StringComparison.OrdinalIgnoreCase))
+                    return MemoryUsedGb.ToString("0.0") + (compact ? "G" : " GB");
+                if (String.Equals(option.ValueFormat, "UsedTotalGb", StringComparison.OrdinalIgnoreCase))
+                    return compact ? Math.Round(MemoryUsedGb).ToString("0") + "/" + Math.Round(MemoryTotalGb).ToString("0") + "G" :
+                        MemoryUsedGb.ToString("0.0") + "/" + MemoryTotalGb.ToString("0.0") + " GB";
+            }
+            if (option.Kind == MetricKind.Disk && !String.IsNullOrEmpty(diskName))
+            {
+                double value;
+                if (DiskPercents != null && DiskPercents.TryGetValue(diskName, out value))
+                    return Math.Round(value).ToString("0") + "%";
+            }
+            return FormatValue(option.Kind, compact);
+        }
+
         public static string FormatRate(double bytesPerSecond)
         {
             if (bytesPerSecond >= 1073741824.0) return (bytesPerSecond / 1073741824.0).ToString("0.0") + " GB/s";
@@ -72,6 +98,7 @@ namespace TaskbarMonitor
     public sealed class MetricHistory
     {
         private readonly Dictionary<MetricKind, List<double>> values;
+        private readonly Dictionary<string, List<double>> diskValues;
         private int maximumSamples;
 
         public MetricHistory()
@@ -79,6 +106,7 @@ namespace TaskbarMonitor
             values = new Dictionary<MetricKind, List<double>>();
             foreach (MetricKind kind in Enum.GetValues(typeof(MetricKind)))
                 values[kind] = new List<double>();
+            diskValues = new Dictionary<string, List<double>>(StringComparer.OrdinalIgnoreCase);
             maximumSamples = 600;
         }
 
@@ -97,11 +125,33 @@ namespace TaskbarMonitor
                 if (list.Count > maximumSamples)
                     list.RemoveRange(0, list.Count - maximumSamples);
             }
+            if (snapshot.DiskPercents != null)
+            {
+                foreach (KeyValuePair<string, double> pair in snapshot.DiskPercents)
+                {
+                    List<double> list;
+                    if (!diskValues.TryGetValue(pair.Key, out list))
+                    {
+                        list = new List<double>();
+                        diskValues[pair.Key] = list;
+                    }
+                    list.Add(pair.Value);
+                    if (list.Count > maximumSamples) list.RemoveRange(0, list.Count - maximumSamples);
+                }
+            }
         }
 
         public List<double> GetValues(MetricKind kind)
         {
             return new List<double>(values[kind]);
+        }
+
+        public List<double> GetDiskValues(string diskName)
+        {
+            List<double> list;
+            if (!String.IsNullOrEmpty(diskName) && diskValues.TryGetValue(diskName, out list))
+                return new List<double>(list);
+            return new List<double>();
         }
 
         public void AddSynthetic(MetricKind kind, double value)
@@ -111,9 +161,23 @@ namespace TaskbarMonitor
             if (list.Count > maximumSamples) list.RemoveAt(0);
         }
 
+        public void AddSyntheticDisk(string diskName, double value)
+        {
+            List<double> list;
+            if (!diskValues.TryGetValue(diskName, out list))
+            {
+                list = new List<double>();
+                diskValues[diskName] = list;
+            }
+            list.Add(value);
+            if (list.Count > maximumSamples) list.RemoveAt(0);
+        }
+
         private void Trim()
         {
             foreach (List<double> list in values.Values)
+                if (list.Count > maximumSamples) list.RemoveRange(0, list.Count - maximumSamples);
+            foreach (List<double> list in diskValues.Values)
                 if (list.Count > maximumSamples) list.RemoveRange(0, list.Count - maximumSamples);
         }
     }
@@ -129,12 +193,15 @@ namespace TaskbarMonitor
         private bool hasCpuSample;
         private bool hasNetworkSample;
         private PdhSingleCounter diskCounter;
+        private PdhWildcardCounter logicalDiskCounter;
         private PdhWildcardCounter gpuCounter;
 
         public MetricSampler()
         {
             try { diskCounter = new PdhSingleCounter(@"\PhysicalDisk(_Total)\% Disk Time"); }
             catch { diskCounter = null; }
+            try { logicalDiskCounter = new PdhWildcardCounter(@"\LogicalDisk(*)\% Disk Time"); }
+            catch { logicalDiskCounter = null; }
             try { gpuCounter = new PdhWildcardCounter(@"\GPU Engine(*)\Utilization Percentage"); }
             catch { gpuCounter = null; }
         }
@@ -145,10 +212,29 @@ namespace TaskbarMonitor
             result.Timestamp = DateTime.Now;
             result.CpuPercent = SampleCpu();
             SampleMemory(result);
-            result.DiskPercent = IsEnabled(settings, MetricKind.Disk) && diskCounter != null ? diskCounter.Read() : 0.0;
+            SampleDisks(result, settings);
             SampleNetwork(result, IsEnabled(settings, MetricKind.Network));
             result.GpuPercent = IsEnabled(settings, MetricKind.Gpu) && gpuCounter != null ? gpuCounter.ReadGpuMaximum() : 0.0;
             return result;
+        }
+
+        private void SampleDisks(MetricSnapshot result, AppSettings settings)
+        {
+            if (!IsEnabled(settings, MetricKind.Disk)) return;
+            List<string> selected = settings.SelectedDisks == null ? new List<string>() :
+                settings.SelectedDisks.Where(delegate(string name) { return !String.IsNullOrWhiteSpace(name); })
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            Dictionary<string, double> current = logicalDiskCounter == null ?
+                new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) : logicalDiskCounter.ReadValues();
+            foreach (string diskName in selected)
+            {
+                double value;
+                if (current.TryGetValue(diskName, out value)) result.DiskPercents[diskName] = value;
+            }
+            if (result.DiskPercents.Count > 0)
+                result.DiskPercent = result.DiskPercents.Values.Max();
+            else if (diskCounter != null)
+                result.DiskPercent = diskCounter.Read();
         }
 
         private static bool IsEnabled(AppSettings settings, MetricKind kind)
@@ -241,6 +327,7 @@ namespace TaskbarMonitor
         public void Dispose()
         {
             if (diskCounter != null) diskCounter.Dispose();
+            if (logicalDiskCounter != null) logicalDiskCounter.Dispose();
             if (gpuCounter != null) gpuCounter.Dispose();
         }
     }
@@ -373,6 +460,38 @@ namespace TaskbarMonitor
                 }
                 double maximum = engines.Count == 0 ? fallbackMaximum : engines.Values.Max();
                 return Math.Max(0.0, Math.Min(100.0, maximum));
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+        }
+
+        public Dictionary<string, double> ReadValues()
+        {
+            Dictionary<string, double> result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+            if (query == IntPtr.Zero) return result;
+            if (PdhNative.PdhCollectQueryData(query) != PdhNative.ERROR_SUCCESS) return result;
+            uint bufferSize = 0;
+            uint itemCount = 0;
+            uint status = PdhNative.PdhGetFormattedCounterArray(counter, PdhNative.PDH_FMT_DOUBLE, ref bufferSize, ref itemCount, IntPtr.Zero);
+            if (status != PdhNative.PDH_MORE_DATA || bufferSize == 0 || itemCount == 0) return result;
+            IntPtr buffer = Marshal.AllocHGlobal((int)bufferSize);
+            try
+            {
+                status = PdhNative.PdhGetFormattedCounterArray(counter, PdhNative.PDH_FMT_DOUBLE, ref bufferSize, ref itemCount, buffer);
+                if (status != PdhNative.ERROR_SUCCESS) return result;
+                int size = Marshal.SizeOf(typeof(PdhNative.PDH_FMT_COUNTERVALUE_ITEM));
+                for (uint index = 0; index < itemCount; index++)
+                {
+                    IntPtr itemPointer = new IntPtr(buffer.ToInt64() + index * size);
+                    PdhNative.PDH_FMT_COUNTERVALUE_ITEM item = (PdhNative.PDH_FMT_COUNTERVALUE_ITEM)Marshal.PtrToStructure(itemPointer, typeof(PdhNative.PDH_FMT_COUNTERVALUE_ITEM));
+                    if (item.Value.CStatus > 1 || Double.IsNaN(item.Value.DoubleValue)) continue;
+                    string name = Marshal.PtrToStringUni(item.Name) ?? String.Empty;
+                    if (String.IsNullOrEmpty(name) || name == "_Total") continue;
+                    result[name] = Math.Max(0.0, Math.Min(100.0, item.Value.DoubleValue));
+                }
+                return result;
             }
             finally
             {

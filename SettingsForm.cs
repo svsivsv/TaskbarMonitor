@@ -27,10 +27,14 @@ namespace TaskbarMonitor
         private readonly CheckBox startupInput;
         private readonly CheckBox showSettingsInput;
         private readonly CheckBox seamlessInput;
+        private readonly CheckBox widgetInteractionInput;
+        private readonly CheckBox overflowPagingInput;
+        private readonly CheckedListBox diskList;
         private readonly ToolTip helpTip;
         private MetricSnapshot lastSnapshot;
         private MetricHistory lastHistory;
         private bool loading;
+        private bool dropDownOpen;
 
         public SettingsForm(AppHost appHost, AppSettings settings)
         {
@@ -41,8 +45,8 @@ namespace TaskbarMonitor
             Text = "Taskbar Monitor 설정";
             Icon = IconFactory.CreateGraphIcon(Color.FromArgb(0, 183, 195));
             StartPosition = FormStartPosition.CenterScreen;
-            Size = new Size(800, 920);
-            MinimumSize = new Size(760, 850);
+            Size = new Size(800, 1000);
+            MinimumSize = new Size(760, 940);
             AutoScaleMode = AutoScaleMode.Dpi;
             Font = new Font("Segoe UI", 9.0f);
             BackColor = Color.FromArgb(245, 245, 245);
@@ -125,7 +129,8 @@ namespace TaskbarMonitor
             insideHeightInput = NewNumber(20, 48, working.InsideHeight, 1, 0);
             opacityInput = NewNumber(25, 100, working.OpacityPercent, 1, 0);
             fontInput = NewNumber(7, 18, (decimal)working.FontSize, 0.5m, 1);
-            positionInput = NewCombo(new string[] { "작업 표시줄 안쪽", "작업 표시줄 위" }, working.PositionMode == "Above" ? 1 : 0);
+            int positionIndex = working.PositionMode == "Popup" ? 2 : (working.PositionMode == "Above" ? 1 : 0);
+            positionInput = NewCombo(new string[] { "작업 표시줄 안쪽", "작업 표시줄 위", "팝업 창 (트레이 클릭)" }, positionIndex);
             int fullscreenIndex = working.FullscreenMode == "Show" ? 1 : (working.FullscreenMode == "ClickThrough" ? 2 : 0);
             fullscreenInput = NewCombo(new string[] { "전체화면에서 숨기기", "항상 표시", "표시 + 클릭 통과" }, fullscreenIndex);
 
@@ -144,20 +149,44 @@ namespace TaskbarMonitor
             startupInput = NewCheckBox("Windows 시작 시 자동 실행", working.StartWithWindows);
             showSettingsInput = NewCheckBox("직접 실행 시 설정 먼저 표시", working.ShowSettingsOnManualLaunch);
             seamlessInput = NewCheckBox("작업 표시줄 무배경 결합", working.InsideStyle == "Seamless");
+            widgetInteractionInput = NewCheckBox("위젯 전체 영역 클릭 인식", working.WidgetInteractionEnabled);
+            overflowPagingInput = NewCheckBox("공간 초과 시 좌우 페이지", working.OverflowPaging);
             checks.Controls.Add(autoFitInput);
             checks.Controls.Add(pauseHiddenInput);
             checks.Controls.Add(startupInput);
             checks.Controls.Add(showSettingsInput);
             checks.Controls.Add(seamlessInput);
+            checks.Controls.Add(widgetInteractionInput);
+            checks.Controls.Add(overflowPagingInput);
             table.Controls.Add(checks, 0, 5);
             table.SetColumnSpan(checks, 4);
+
+            GroupBox diskGroup = new GroupBox();
+            diskGroup.Text = "표시할 디스크 드라이브";
+            diskGroup.Location = new Point(18, 692);
+            diskGroup.Size = new Size(748, 82);
+            diskGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            diskList = new CheckedListBox();
+            diskList.Dock = DockStyle.Fill;
+            diskList.CheckOnClick = true;
+            diskList.MultiColumn = true;
+            diskList.ColumnWidth = 82;
+            diskList.BorderStyle = BorderStyle.None;
+            diskList.Padding = new Padding(8, 4, 8, 4);
+            List<string> diskNames = AppSettings.GetAvailableDiskNames();
+            foreach (string selected in working.SelectedDisks)
+                if (!diskNames.Contains(selected, StringComparer.OrdinalIgnoreCase)) diskNames.Add(selected);
+            foreach (string diskName in diskNames.OrderBy(delegate(string name) { return name; }))
+                diskList.Items.Add(diskName, working.SelectedDisks.Contains(diskName, StringComparer.OrdinalIgnoreCase));
+            diskGroup.Controls.Add(diskList);
+            Controls.Add(diskGroup);
 
             ConfigureHelpText();
 
             GroupBox helpGroup = new GroupBox();
             helpGroup.Text = "설정 도움말";
-            helpGroup.Location = new Point(18, 692);
-            helpGroup.Size = new Size(748, 112);
+            helpGroup.Location = new Point(18, 785);
+            helpGroup.Size = new Size(748, 100);
             helpGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             Label helpText = new Label();
             helpText.Dock = DockStyle.Fill;
@@ -166,14 +195,14 @@ namespace TaskbarMonitor
             helpText.Text =
                 "권장값은 갱신 1000ms, 그래프 기록 60초입니다. 갱신 값을 낮추면 더 빠르게 반응하지만 CPU 사용량이 늘 수 있습니다.\r\n" +
                 "최대 너비·왼쪽 여백은 배치 범위, 내부 항목 폭·높이는 작업 표시줄 안쪽 칸 크기를 조절합니다.\r\n" +
-                "‘표시 + 클릭 통과’는 전체화면 위에 보이되 마우스 입력을 뒤 앱으로 넘깁니다. 위 옵션에 마우스를 올리면 더 자세히 볼 수 있습니다.";
+                "항목이 공간을 넘으면 좌우 화살표로 페이지를 바꿉니다. 클릭 인식을 끄면 트레이 아이콘이나 EXE 재실행으로 설정을 열 수 있습니다.";
             helpGroup.Controls.Add(helpText);
             Controls.Add(helpGroup);
 
             FlowLayoutPanel bottom = new FlowLayoutPanel();
             bottom.FlowDirection = FlowDirection.RightToLeft;
             bottom.WrapContents = false;
-            bottom.Location = new Point(18, 827);
+            bottom.Location = new Point(18, 907);
             bottom.Size = new Size(748, 43);
             bottom.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
             Button startButton = NewButton("저장하고 표시 시작", SaveAndStart);
@@ -244,6 +273,14 @@ namespace TaskbarMonitor
             graph.FillWeight = 55;
             grid.Columns.Add(graph);
 
+            DataGridViewComboBoxColumn format = new DataGridViewComboBoxColumn();
+            format.Name = "Format";
+            format.HeaderText = "값 형식";
+            format.ToolTipText = "메모리는 %, 사용 GB, 사용/전체 GB 중에서 고를 수 있습니다.";
+            format.Items.AddRange("기본", "%", "사용 GB", "사용/전체 GB");
+            format.FillWeight = 88;
+            grid.Columns.Add(format);
+
             DataGridViewComboBoxColumn style = new DataGridViewComboBoxColumn();
             style.Name = "Style";
             style.HeaderText = "그래프 형태";
@@ -279,7 +316,7 @@ namespace TaskbarMonitor
             helpTip.SetToolTip(offsetInput, "작업표시줄 왼쪽 끝에서 위젯이 시작할 위치입니다. 날씨 버튼과 시작 버튼 사이 배치를 미세 조정할 때 사용합니다.");
             helpTip.SetToolTip(opacityInput, "패널 배경의 불투명도입니다. 작업 표시줄 위 모드에서 효과가 크며, 무배경 결합 모드에서는 영향이 적습니다.");
             helpTip.SetToolTip(fontInput, "항목 이름과 숫자의 글자 크기입니다. 칸이 좁을 때는 8~9 정도가 보기 좋습니다.");
-            helpTip.SetToolTip(positionInput, "안쪽은 위젯을 실제 작업표시줄에 결합하고, 위쪽은 작업표시줄 바로 위에 독립 창으로 표시합니다.");
+            helpTip.SetToolTip(positionInput, "안쪽: 작업표시줄 결합 / 위쪽: 작업표시줄 위에 계속 표시 / 팝업: 트레이 아이콘 클릭으로 열고 닫는 독립 창입니다.");
             helpTip.SetToolTip(fullscreenInput, "숨기기: 전체화면에서 감춤 / 항상 표시: 위에 유지 / 클릭 통과: 보이지만 마우스 입력은 전체화면 앱으로 전달합니다.");
             helpTip.SetToolTip(insideItemWidthInput, "작업표시줄 안쪽 모드에서 CPU·RAM 등 항목 하나가 차지할 기준 폭입니다. 폭이 작으면 이름이 짧게 표시됩니다.");
             helpTip.SetToolTip(insideHeightInput, "작업표시줄 안쪽 위젯의 높이입니다. 기본 28px이며 작업표시줄 높이를 넘지 않도록 자동 제한됩니다.");
@@ -288,6 +325,9 @@ namespace TaskbarMonitor
             helpTip.SetToolTip(startupInput, "Windows 로그인 후 저장된 설정으로 위젯을 자동 실행합니다.");
             helpTip.SetToolTip(showSettingsInput, "EXE를 직접 실행했을 때 위젯보다 설정창을 먼저 엽니다. Windows 자동 시작에는 적용되지 않습니다.");
             helpTip.SetToolTip(seamlessInput, "패널 배경과 테두리를 투명 처리해 작업표시줄 글자·그래프만 보이게 합니다.");
+            helpTip.SetToolTip(widgetInteractionInput, "켜면 위젯의 빈 공간까지 클릭·우클릭됩니다. 끄면 위젯 전체가 작업표시줄로 클릭 통과됩니다.");
+            helpTip.SetToolTip(overflowPagingInput, "항목이 표시 공간보다 많을 때 폭을 계속 줄이지 않고 좌우 화살표로 페이지를 전환합니다.");
+            helpTip.SetToolTip(diskList, "동시에 감시할 드라이브를 여러 개 선택합니다. 각 드라이브의 디스크 사용 시간을 별도 항목과 그래프로 표시합니다.");
         }
 
         private void LoadMetricRows()
@@ -297,9 +337,14 @@ namespace TaskbarMonitor
             foreach (MetricOption option in working.Metrics.OrderBy(delegate(MetricOption m) { return m.Order; }))
             {
                 int index = metricGrid.Rows.Add(option.Enabled, option.DisplayName, option.Label, option.ShowValue,
-                    option.ShowGraph, StyleDisplay(option.GraphStyle), "선택");
+                    option.ShowGraph, ValueFormatDisplay(option), StyleDisplay(option.GraphStyle), "선택");
                 DataGridViewRow row = metricGrid.Rows[index];
                 row.Tag = option;
+                if (option.Kind != MetricKind.Memory)
+                {
+                    row.Cells["Format"].ReadOnly = true;
+                    row.Cells["Format"].Style.ForeColor = Color.Gray;
+                }
                 row.Cells["Color"].Style.BackColor = option.Color;
                 row.Cells["Color"].Style.SelectionBackColor = option.Color;
                 row.Cells["Color"].Style.ForeColor = ContrastColor(option.Color);
@@ -343,6 +388,43 @@ namespace TaskbarMonitor
             positionInput.SelectedIndexChanged += delegate { RefreshPreview(); };
             fullscreenInput.SelectedIndexChanged += delegate { RefreshPreview(); };
             autoFitInput.CheckedChanged += delegate { RefreshPreview(); };
+            widgetInteractionInput.CheckedChanged += delegate { RefreshPreview(); };
+            overflowPagingInput.CheckedChanged += delegate { RefreshPreview(); };
+            diskList.ItemCheck += delegate { BeginInvoke((MethodInvoker)delegate { RefreshPreview(); }); };
+            preview.MouseClick += delegate(object sender, MouseEventArgs e)
+            {
+                if (e.Button == MouseButtons.Left) preview.TryNavigate(e.Location);
+            };
+            WireDropDownPause(positionInput);
+            WireDropDownPause(fullscreenInput);
+            metricGrid.EditingControlShowing += MetricGridEditingControlShowing;
+        }
+
+        private void WireDropDownPause(ComboBox combo)
+        {
+            combo.DropDown += ComboDropDown;
+            combo.DropDownClosed += ComboDropDownClosed;
+        }
+
+        private void MetricGridEditingControlShowing(object sender, DataGridViewEditingControlShowingEventArgs e)
+        {
+            ComboBox combo = e.Control as ComboBox;
+            if (combo == null) return;
+            combo.DropDown -= ComboDropDown;
+            combo.DropDownClosed -= ComboDropDownClosed;
+            combo.DropDown += ComboDropDown;
+            combo.DropDownClosed += ComboDropDownClosed;
+        }
+
+        private void ComboDropDown(object sender, EventArgs e)
+        {
+            dropDownOpen = true;
+        }
+
+        private void ComboDropDownClosed(object sender, EventArgs e)
+        {
+            dropDownOpen = false;
+            BeginInvoke((MethodInvoker)delegate { RefreshPreview(); });
         }
 
         private void ReadControlsToWorking()
@@ -354,6 +436,8 @@ namespace TaskbarMonitor
                 option.Label = Convert.ToString(row.Cells["Label"].Value) ?? option.DisplayName;
                 option.ShowValue = Convert.ToBoolean(row.Cells["Value"].Value ?? false);
                 option.ShowGraph = Convert.ToBoolean(row.Cells["Graph"].Value ?? false);
+                if (option.Kind == MetricKind.Memory)
+                    option.ValueFormat = ValueFormatValue(Convert.ToString(row.Cells["Format"].Value));
                 option.GraphStyle = StyleValue(Convert.ToString(row.Cells["Style"].Value));
                 option.Order = row.Index;
             }
@@ -365,18 +449,23 @@ namespace TaskbarMonitor
             working.InsideHeight = (int)insideHeightInput.Value;
             working.OpacityPercent = (int)opacityInput.Value;
             working.FontSize = (float)fontInput.Value;
-            working.PositionMode = positionInput.SelectedIndex == 1 ? "Above" : "Inside";
+            working.PositionMode = positionInput.SelectedIndex == 2 ? "Popup" : (positionInput.SelectedIndex == 1 ? "Above" : "Inside");
             working.FullscreenMode = fullscreenInput.SelectedIndex == 1 ? "Show" : (fullscreenInput.SelectedIndex == 2 ? "ClickThrough" : "Hide");
             working.AutoFit = autoFitInput.Checked;
             working.PauseWhenHidden = pauseHiddenInput.Checked;
             working.StartWithWindows = startupInput.Checked;
             working.ShowSettingsOnManualLaunch = showSettingsInput.Checked;
             working.InsideStyle = seamlessInput.Checked ? "Seamless" : "Panel";
+            working.WidgetInteractionEnabled = widgetInteractionInput.Checked;
+            working.OverflowPaging = overflowPagingInput.Checked;
+            working.SelectedDisks = diskList.CheckedItems.Cast<object>().Select(delegate(object item) { return Convert.ToString(item); })
+                .Where(delegate(string name) { return !String.IsNullOrWhiteSpace(name); }).ToList();
+            if (working.SelectedDisks.Count == 0) working.SelectedDisks.AddRange(AppSettings.GetAvailableDiskNames().Take(1));
         }
 
         private void RefreshPreview()
         {
-            if (loading) return;
+            if (loading || dropDownOpen) return;
             try
             {
                 ReadControlsToWorking();
@@ -395,6 +484,7 @@ namespace TaskbarMonitor
         {
             lastSnapshot = snapshot;
             lastHistory = history;
+            if (dropDownOpen) return;
             bool inside = working.PositionMode == "Inside";
             preview.SetIntegratedStyle(inside, Color.FromArgb(31, 31, 31));
             preview.Configure(working, snapshot, history);
@@ -521,6 +611,21 @@ namespace TaskbarMonitor
             if (value == "채움") return "Fill";
             if (value == "막대") return "Bars";
             return "Line";
+        }
+
+        private static string ValueFormatDisplay(MetricOption option)
+        {
+            if (option == null || option.Kind != MetricKind.Memory) return "기본";
+            if (String.Equals(option.ValueFormat, "UsedGb", StringComparison.OrdinalIgnoreCase)) return "사용 GB";
+            if (String.Equals(option.ValueFormat, "UsedTotalGb", StringComparison.OrdinalIgnoreCase)) return "사용/전체 GB";
+            return "%";
+        }
+
+        private static string ValueFormatValue(string value)
+        {
+            if (value == "사용 GB") return "UsedGb";
+            if (value == "사용/전체 GB") return "UsedTotalGb";
+            return "Percent";
         }
     }
 }

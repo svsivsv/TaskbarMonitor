@@ -30,6 +30,7 @@ namespace TaskbarMonitor
         public int Priority { get; set; }
         public bool AutoScale { get; set; }
         public double FixedMaximum { get; set; }
+        public string ValueFormat { get; set; }
 
         public MetricOption Clone()
         {
@@ -60,6 +61,7 @@ namespace TaskbarMonitor
 
     public sealed class AppSettings
     {
+        public int SettingsVersion { get; set; }
         public List<MetricOption> Metrics { get; set; }
         public int UpdateIntervalMs { get; set; }
         public int HistorySeconds { get; set; }
@@ -77,6 +79,9 @@ namespace TaskbarMonitor
         public bool PauseWhenHidden { get; set; }
         public bool StartWithWindows { get; set; }
         public bool ShowSettingsOnManualLaunch { get; set; }
+        public bool WidgetInteractionEnabled { get; set; }
+        public bool OverflowPaging { get; set; }
+        public List<string> SelectedDisks { get; set; }
         public int BackgroundArgb { get; set; }
         public int ForegroundArgb { get; set; }
         public int BorderArgb { get; set; }
@@ -84,6 +89,7 @@ namespace TaskbarMonitor
         public static AppSettings CreateDefault()
         {
             AppSettings value = new AppSettings();
+            value.SettingsVersion = 2;
             value.UpdateIntervalMs = 1000;
             value.HistorySeconds = 60;
             value.MaxWidth = 560;
@@ -100,6 +106,9 @@ namespace TaskbarMonitor
             value.PauseWhenHidden = true;
             value.StartWithWindows = false;
             value.ShowSettingsOnManualLaunch = true;
+            value.WidgetInteractionEnabled = true;
+            value.OverflowPaging = true;
+            value.SelectedDisks = new List<string> { GetSystemDiskName() };
             value.BackgroundArgb = Color.FromArgb(238, 28, 28, 28).ToArgb();
             value.ForegroundArgb = Color.FromArgb(245, 245, 245).ToArgb();
             value.BorderArgb = Color.FromArgb(80, 255, 255, 255).ToArgb();
@@ -132,17 +141,27 @@ namespace TaskbarMonitor
             item.Priority = order;
             item.AutoScale = kind == MetricKind.Network;
             item.FixedMaximum = kind == MetricKind.Network ? 1048576.0 : 100.0;
+            item.ValueFormat = kind == MetricKind.Memory ? "Percent" : "Default";
             return item;
         }
 
         public void EnsureDefaults()
         {
             AppSettings defaults = CreateDefault();
+            if (SettingsVersion < 2)
+            {
+                WidgetInteractionEnabled = true;
+                OverflowPaging = true;
+                SettingsVersion = 2;
+            }
             if (Metrics == null) Metrics = new List<MetricOption>();
             foreach (MetricOption defaultMetric in defaults.Metrics)
             {
-                if (!Metrics.Any(delegate(MetricOption m) { return m.Kind == defaultMetric.Kind; }))
+                MetricOption existing = Metrics.FirstOrDefault(delegate(MetricOption m) { return m.Kind == defaultMetric.Kind; });
+                if (existing == null)
                     Metrics.Add(defaultMetric);
+                else if (String.IsNullOrEmpty(existing.ValueFormat))
+                    existing.ValueFormat = defaultMetric.ValueFormat;
             }
             if (UpdateIntervalMs < 200) UpdateIntervalMs = defaults.UpdateIntervalMs;
             if (HistorySeconds < 10) HistorySeconds = defaults.HistorySeconds;
@@ -156,6 +175,12 @@ namespace TaskbarMonitor
             if (String.IsNullOrEmpty(PositionMode)) PositionMode = defaults.PositionMode;
             if (String.IsNullOrEmpty(FullscreenMode)) FullscreenMode = defaults.FullscreenMode;
             if (String.IsNullOrEmpty(CaptureMode)) CaptureMode = defaults.CaptureMode;
+            if (SelectedDisks == null || SelectedDisks.Count == 0)
+                SelectedDisks = new List<string>(defaults.SelectedDisks);
+            else
+                SelectedDisks = SelectedDisks.Where(delegate(string name) { return !String.IsNullOrWhiteSpace(name); })
+                    .Select(NormalizeDiskName).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (SelectedDisks.Count == 0) SelectedDisks.Add(GetSystemDiskName());
             if (BackgroundArgb == 0) BackgroundArgb = defaults.BackgroundArgb;
             if (ForegroundArgb == 0) ForegroundArgb = defaults.ForegroundArgb;
             if (BorderArgb == 0) BorderArgb = defaults.BorderArgb;
@@ -165,7 +190,36 @@ namespace TaskbarMonitor
         {
             AppSettings copy = (AppSettings)MemberwiseClone();
             copy.Metrics = Metrics.Select(delegate(MetricOption m) { return m.Clone(); }).ToList();
+            copy.SelectedDisks = new List<string>(SelectedDisks ?? new List<string>());
             return copy;
+        }
+
+        public static List<string> GetAvailableDiskNames()
+        {
+            List<string> names = new List<string>();
+            try
+            {
+                foreach (DriveInfo drive in DriveInfo.GetDrives())
+                {
+                    if (!drive.IsReady) continue;
+                    if (drive.DriveType != DriveType.Fixed && drive.DriveType != DriveType.Removable) continue;
+                    names.Add(NormalizeDiskName(drive.Name));
+                }
+            }
+            catch { }
+            if (names.Count == 0) names.Add(GetSystemDiskName());
+            return names.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(delegate(string name) { return name; }).ToList();
+        }
+
+        private static string GetSystemDiskName()
+        {
+            string root = Path.GetPathRoot(Environment.SystemDirectory);
+            return NormalizeDiskName(String.IsNullOrEmpty(root) ? "C:" : root);
+        }
+
+        private static string NormalizeDiskName(string name)
+        {
+            return (name ?? String.Empty).Trim().TrimEnd('\\').ToUpperInvariant();
         }
     }
 

@@ -72,8 +72,10 @@ namespace TaskbarMonitor
         private MetricSnapshot snapshot;
         private readonly Timer refreshTimer;
         private readonly Timer showSettingsTimer;
+        private readonly Timer contextMenuDismissTimer;
         private readonly NotifyIcon trayIcon;
         private readonly ContextMenuStrip contextMenu;
+        private ToolStripMenuItem interactionMenuItem;
         private readonly MessageSink messageSink;
         private WidgetForm widgetForm;
         private DetailForm detailForm;
@@ -81,6 +83,7 @@ namespace TaskbarMonitor
         private bool monitoring;
         private bool paused;
         private DateTime lastHiddenSample;
+        private DateTime contextMenuLastPointerTime;
 
         public AppHost(bool startupLaunch)
         {
@@ -103,6 +106,12 @@ namespace TaskbarMonitor
             };
 
             contextMenu = BuildContextMenu();
+            contextMenu.Opened += delegate
+            {
+                contextMenuLastPointerTime = DateTime.UtcNow;
+                contextMenuDismissTimer.Start();
+            };
+            contextMenu.Closed += delegate { contextMenuDismissTimer.Stop(); };
             trayIcon = new NotifyIcon();
             trayIcon.Icon = IconFactory.CreateGraphIcon(Color.FromArgb(0, 183, 195));
             trayIcon.Text = "Taskbar Monitor";
@@ -114,6 +123,10 @@ namespace TaskbarMonitor
             refreshTimer.Interval = settings.UpdateIntervalMs;
             refreshTimer.Tick += RefreshTick;
             refreshTimer.Start();
+
+            contextMenuDismissTimer = new Timer();
+            contextMenuDismissTimer.Interval = 200;
+            contextMenuDismissTimer.Tick += ContextMenuDismissTick;
 
             if (startupLaunch || !settings.ShowSettingsOnManualLaunch)
                 StartMonitor();
@@ -132,6 +145,15 @@ namespace TaskbarMonitor
             menu.Items.Add("위젯 설정 수정", null, delegate { RequestShowSettings(); });
             menu.Items.Add("상세 그래프 열기/닫기", null, delegate { ToggleDetail(); });
             menu.Items.Add("위젯 표시/숨기기", null, delegate { ToggleWidget(); });
+            interactionMenuItem = new ToolStripMenuItem("위젯 전체 영역 클릭 인식");
+            interactionMenuItem.Checked = settings.WidgetInteractionEnabled;
+            interactionMenuItem.Click += delegate
+            {
+                AppSettings updated = settings.Clone();
+                updated.WidgetInteractionEnabled = !settings.WidgetInteractionEnabled;
+                ApplySettings(updated, false);
+            };
+            menu.Items.Add(interactionMenuItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("갱신 일시정지", null, delegate(object sender, EventArgs e)
             {
@@ -154,13 +176,41 @@ namespace TaskbarMonitor
         public void ShowWidgetContextMenu(Control source, Point location)
         {
             if (source == null || source.IsDisposed) return;
-            if (contextMenu.Visible) contextMenu.Close();
+            if (contextMenu.Visible)
+            {
+                contextMenu.Close();
+                return;
+            }
             contextMenu.Show(source, location);
+        }
+
+        private void ContextMenuDismissTick(object sender, EventArgs e)
+        {
+            if (!contextMenu.Visible)
+            {
+                contextMenuDismissTimer.Stop();
+                return;
+            }
+            Rectangle activeBounds = contextMenu.Bounds;
+            activeBounds.Inflate(10, 10);
+            if (activeBounds.Contains(Cursor.Position))
+            {
+                contextMenuLastPointerTime = DateTime.UtcNow;
+                return;
+            }
+            if ((DateTime.UtcNow - contextMenuLastPointerTime).TotalMilliseconds >= 900)
+                contextMenu.Close();
         }
 
         private void TrayIconMouseClick(object sender, MouseEventArgs e)
         {
             if (e.Button != MouseButtons.Left) return;
+            if (String.Equals(settings.PositionMode, "Popup", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!monitoring) StartMonitor();
+                else if (widgetForm != null) widgetForm.TogglePopupVisibility();
+                return;
+            }
             if (monitoring) ToggleDetail();
             else ShowSettings();
         }
@@ -214,6 +264,7 @@ namespace TaskbarMonitor
         {
             newSettings.EnsureDefaults();
             settings = newSettings.Clone();
+            if (interactionMenuItem != null) interactionMenuItem.Checked = settings.WidgetInteractionEnabled;
             SettingsStore.Save(settings);
             SettingsStore.ApplyStartupSetting(settings.StartWithWindows);
             history.Configure(settings.HistorySeconds, settings.UpdateIntervalMs);
@@ -235,6 +286,12 @@ namespace TaskbarMonitor
 
         public void ToggleWidget()
         {
+            if (monitoring && widgetForm != null && !widgetForm.IsDisposed &&
+                String.Equals(settings.PositionMode, "Popup", StringComparison.OrdinalIgnoreCase))
+            {
+                widgetForm.TogglePopupVisibility();
+                return;
+            }
             if (!monitoring)
             {
                 StartMonitor();
@@ -317,6 +374,8 @@ namespace TaskbarMonitor
             refreshTimer.Stop();
             showSettingsTimer.Stop();
             showSettingsTimer.Dispose();
+            contextMenuDismissTimer.Stop();
+            contextMenuDismissTimer.Dispose();
             trayIcon.Visible = false;
             trayIcon.Dispose();
             contextMenu.Dispose();
@@ -335,10 +394,12 @@ namespace TaskbarMonitor
         private readonly AppHost host;
         private readonly MetricBarControl bar;
         private bool clickThrough;
+        private bool fullscreenClickThrough;
         private bool embedded;
         private IntPtr taskbarParent;
         private bool hiddenForFullscreen;
         private bool hiddenForShellFlyout;
+        private bool hiddenByUser;
 
         public WidgetForm(AppHost owner)
         {
@@ -382,7 +443,11 @@ namespace TaskbarMonitor
 
         private void BarMouseClick(object sender, MouseEventArgs e)
         {
-            if (e.Button == MouseButtons.Left && e.Clicks == 1) host.ToggleDetail();
+            if (e.Button == MouseButtons.Left && e.Clicks == 1)
+            {
+                if (bar.TryNavigate(e.Location)) return;
+                host.ToggleDetail();
+            }
         }
 
         private void BarMouseUp(object sender, MouseEventArgs e)
@@ -393,12 +458,13 @@ namespace TaskbarMonitor
 
         private void BarMouseDoubleClick(object sender, MouseEventArgs e)
         {
-            if (e.Button == MouseButtons.Left) host.OpenTaskManager();
+            if (e.Button == MouseButtons.Left && !bar.IsNavigationPoint(e.Location)) host.OpenTaskManager();
         }
 
         public void UpdateData(AppSettings settings, MetricSnapshot snapshot, MetricHistory history)
         {
             bool insideMode = String.Equals(settings.PositionMode, "Inside", StringComparison.OrdinalIgnoreCase);
+            if (!String.Equals(settings.PositionMode, "Popup", StringComparison.OrdinalIgnoreCase)) hiddenByUser = false;
             bar.SetIntegratedStyle(insideMode, IntegratedBackgroundKey);
             bar.Configure(settings, snapshot, history);
             PositionWidget();
@@ -406,7 +472,7 @@ namespace TaskbarMonitor
             if (seamless)
             {
                 BackColor = IntegratedBackgroundKey;
-                TransparencyKey = IntegratedBackgroundKey;
+                TransparencyKey = settings.WidgetInteractionEnabled ? Color.Empty : IntegratedBackgroundKey;
                 Opacity = 1.0;
                 Region previous = Region;
                 Region = null;
@@ -419,6 +485,7 @@ namespace TaskbarMonitor
                 Opacity = Math.Max(0.25, Math.Min(1.0, settings.OpacityPercent / 100.0));
                 ApplyRoundedRegion();
             }
+            UpdateClickThrough();
         }
 
         public void PositionWidget()
@@ -433,12 +500,21 @@ namespace TaskbarMonitor
             int height;
             int y;
 
-            if (String.Equals(settings.PositionMode, "Above", StringComparison.OrdinalIgnoreCase))
+            bool popupMode = String.Equals(settings.PositionMode, "Popup", StringComparison.OrdinalIgnoreCase);
+            if (String.Equals(settings.PositionMode, "Above", StringComparison.OrdinalIgnoreCase) || popupMode)
             {
                 DetachFromTaskbar();
-                x = taskbar.Left + settings.TaskbarOffset;
                 height = 48;
-                width = Math.Min(preferred, Math.Max(160, taskbar.Right - x - 12));
+                if (popupMode)
+                {
+                    width = Math.Min(preferred, Math.Max(160, taskbar.Width - 24));
+                    x = taskbar.Right - width - 12;
+                }
+                else
+                {
+                    x = taskbar.Left + settings.TaskbarOffset;
+                    width = Math.Min(preferred, Math.Max(160, taskbar.Right - x - 12));
+                }
                 y = taskbar.Top - height - 4;
                 if (x + width > screen.Right - 8) x = Math.Max(screen.Left + 8, screen.Right - width - 8);
                 NativeMethods.SetWindowPos(Handle, NativeMethods.HWND_TOP, x, y, Math.Max(160, width), Math.Max(28, height),
@@ -474,13 +550,19 @@ namespace TaskbarMonitor
         {
             string mode = host.Settings.FullscreenMode;
             hiddenForFullscreen = fullscreen && String.Equals(mode, "Hide", StringComparison.OrdinalIgnoreCase);
-            bool shouldClickThrough = fullscreen && String.Equals(mode, "ClickThrough", StringComparison.OrdinalIgnoreCase);
+            fullscreenClickThrough = fullscreen && String.Equals(mode, "ClickThrough", StringComparison.OrdinalIgnoreCase);
+            UpdateClickThrough();
+            ApplyAutomaticVisibility(monitoring);
+        }
+
+        private void UpdateClickThrough()
+        {
+            bool shouldClickThrough = !host.Settings.WidgetInteractionEnabled || fullscreenClickThrough;
             if (shouldClickThrough != clickThrough)
             {
                 NativeMethods.SetClickThrough(Handle, shouldClickThrough);
                 clickThrough = shouldClickThrough;
             }
-            ApplyAutomaticVisibility(monitoring);
         }
 
         public void UpdateShellFlyoutState(bool shellFlyoutForeground, bool monitoring)
@@ -491,9 +573,21 @@ namespace TaskbarMonitor
 
         private void ApplyAutomaticVisibility(bool monitoring)
         {
-            bool shouldShow = monitoring && !hiddenForFullscreen && !hiddenForShellFlyout;
+            bool shouldShow = monitoring && !hiddenByUser && !hiddenForFullscreen && !hiddenForShellFlyout;
             if (shouldShow && !Visible) Show();
             else if (!shouldShow && Visible) Hide();
+        }
+
+        public void TogglePopupVisibility()
+        {
+            hiddenByUser = !hiddenByUser;
+            if (!hiddenByUser) PositionWidget();
+            ApplyAutomaticVisibility(true);
+            if (!hiddenByUser)
+            {
+                BringToFront();
+                NativeMethods.SetForegroundWindow(Handle);
+            }
         }
 
         private void AttachToTaskbar(IntPtr taskbarHandle)
