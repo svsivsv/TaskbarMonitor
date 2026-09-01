@@ -71,6 +71,7 @@ namespace TaskbarMonitor
         private readonly MetricHistory history;
         private MetricSnapshot snapshot;
         private readonly Timer refreshTimer;
+        private readonly Timer showSettingsTimer;
         private readonly NotifyIcon trayIcon;
         private readonly ContextMenuStrip contextMenu;
         private readonly MessageSink messageSink;
@@ -91,7 +92,15 @@ namespace TaskbarMonitor
             history.Add(snapshot);
 
             messageSink = new MessageSink();
-            messageSink.ShowSettingsRequested += delegate { ShowSettings(); };
+            messageSink.ShowSettingsRequested += delegate { RequestShowSettings(); };
+
+            showSettingsTimer = new Timer();
+            showSettingsTimer.Interval = 80;
+            showSettingsTimer.Tick += delegate
+            {
+                showSettingsTimer.Stop();
+                ShowSettings();
+            };
 
             contextMenu = BuildContextMenu();
             trayIcon = new NotifyIcon();
@@ -120,7 +129,7 @@ namespace TaskbarMonitor
         private ContextMenuStrip BuildContextMenu()
         {
             ContextMenuStrip menu = new ContextMenuStrip();
-            menu.Items.Add("위젯 설정 수정", null, delegate { ShowSettings(); });
+            menu.Items.Add("위젯 설정 수정", null, delegate { RequestShowSettings(); });
             menu.Items.Add("상세 그래프 열기/닫기", null, delegate { ToggleDetail(); });
             menu.Items.Add("위젯 표시/숨기기", null, delegate { ToggleWidget(); });
             menu.Items.Add(new ToolStripSeparator());
@@ -133,6 +142,13 @@ namespace TaskbarMonitor
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("종료", null, delegate { Shutdown(); });
             return menu;
+        }
+
+        public void RequestShowSettings()
+        {
+            if (contextMenu != null && contextMenu.Visible) contextMenu.Close();
+            showSettingsTimer.Stop();
+            showSettingsTimer.Start();
         }
 
         public void ShowWidgetContextMenu(Control source, Point location)
@@ -254,14 +270,23 @@ namespace TaskbarMonitor
             {
                 if (!settingsForm.Visible) settingsForm.Show();
                 if (settingsForm.WindowState == FormWindowState.Minimized) settingsForm.WindowState = FormWindowState.Normal;
-                settingsForm.Activate();
-                settingsForm.BringToFront();
+                ActivateSettingsForm(settingsForm);
                 return;
             }
             settingsForm = new SettingsForm(this, settings.Clone());
             settingsForm.FormClosed += delegate { settingsForm = null; };
             settingsForm.Show();
-            settingsForm.Activate();
+            ActivateSettingsForm(settingsForm);
+        }
+
+        private static void ActivateSettingsForm(Form form)
+        {
+            bool wasTopMost = form.TopMost;
+            form.TopMost = true;
+            form.BringToFront();
+            form.Activate();
+            NativeMethods.SetForegroundWindow(form.Handle);
+            form.TopMost = wasTopMost;
         }
 
         public void OpenTaskManager()
@@ -278,6 +303,8 @@ namespace TaskbarMonitor
         protected override void ExitThreadCore()
         {
             refreshTimer.Stop();
+            showSettingsTimer.Stop();
+            showSettingsTimer.Dispose();
             trayIcon.Visible = false;
             trayIcon.Dispose();
             contextMenu.Dispose();
@@ -328,6 +355,17 @@ namespace TaskbarMonitor
                 parameters.ExStyle |= NativeMethods.WS_EX_TOOLWINDOW | NativeMethods.WS_EX_NOACTIVATE;
                 return parameters;
             }
+        }
+
+        protected override void WndProc(ref Message message)
+        {
+            if (message.Msg == NativeMethods.WM_APP_SHOW_SETTINGS)
+            {
+                host.RequestShowSettings();
+                message.Result = IntPtr.Zero;
+                return;
+            }
+            base.WndProc(ref message);
         }
 
         private void BarMouseClick(object sender, MouseEventArgs e)

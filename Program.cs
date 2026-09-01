@@ -34,6 +34,14 @@ namespace TaskbarMonitor
                 if (!createdNew)
                 {
                     IntPtr existing = NativeMethods.FindWindow(null, NativeMethods.MessageSinkCaption);
+                    if (existing == IntPtr.Zero)
+                        existing = NativeMethods.FindWindow(null, "Taskbar Monitor");
+                    if (existing == IntPtr.Zero)
+                    {
+                        IntPtr taskbar = NativeMethods.GetPrimaryTaskbarHandle();
+                        if (taskbar != IntPtr.Zero)
+                            existing = NativeMethods.FindWindowEx(taskbar, IntPtr.Zero, null, "Taskbar Monitor");
+                    }
                     if (existing != IntPtr.Zero)
                         NativeMethods.PostMessage(existing, NativeMethods.WM_APP_SHOW_SETTINGS, IntPtr.Zero, IntPtr.Zero);
                     return;
