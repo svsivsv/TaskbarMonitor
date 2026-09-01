@@ -268,6 +268,7 @@ namespace TaskbarMonitor
         {
             if (settingsForm != null && !settingsForm.IsDisposed)
             {
+                PositionSettingsForm(settingsForm);
                 if (!settingsForm.Visible) settingsForm.Show();
                 if (settingsForm.WindowState == FormWindowState.Minimized) settingsForm.WindowState = FormWindowState.Normal;
                 ActivateSettingsForm(settingsForm);
@@ -275,8 +276,19 @@ namespace TaskbarMonitor
             }
             settingsForm = new SettingsForm(this, settings.Clone());
             settingsForm.FormClosed += delegate { settingsForm = null; };
+            PositionSettingsForm(settingsForm);
             settingsForm.Show();
             ActivateSettingsForm(settingsForm);
+        }
+
+        private static void PositionSettingsForm(Form form)
+        {
+            Screen screen = Screen.FromPoint(Cursor.Position);
+            Rectangle area = screen.WorkingArea;
+            int x = area.Left + Math.Max(0, (area.Width - form.Width) / 2);
+            int y = area.Top + Math.Max(0, (area.Height - form.Height) / 2);
+            form.StartPosition = FormStartPosition.Manual;
+            form.Location = new Point(x, y);
         }
 
         private static void ActivateSettingsForm(Form form)
