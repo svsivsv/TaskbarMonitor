@@ -1,0 +1,10 @@
+publish/
+bin/
+obj/
+.vs/
+*.pdb
+*.user
+*.suo
+*.log
+taskbar-live-*.png
+self-test-*.json
