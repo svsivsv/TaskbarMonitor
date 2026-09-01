@@ -161,15 +161,16 @@ namespace TaskbarMonitor
             int usableWidth = Math.Max(1, Width - 2);
             int targetWidth = integratedStyle ? settings.InsideItemWidth : 104;
             bool overflow = settings.OverflowPaging && metrics.Count * targetWidth > usableWidth;
-            int navigationWidth = overflow ? (integratedStyle ? 18 : 24) : 0;
+            int navigationWidth = overflow ? (integratedStyle ? 24 : 30) : 0;
             int contentWidth = Math.Max(1, usableWidth - navigationWidth * 2);
-            int itemsPerPage = overflow ? Math.Max(1, contentWidth / Math.Max(48, targetWidth)) : metrics.Count;
-            pageCount = overflow ? Math.Max(1, (int)Math.Ceiling(metrics.Count / (double)itemsPerPage)) : 1;
+            int pageCapacity = overflow ? Math.Max(1, contentWidth / Math.Max(48, targetWidth)) : metrics.Count;
+            pageCount = overflow ? Math.Max(1, (int)Math.Ceiling(metrics.Count / (double)pageCapacity)) : 1;
+            int itemsPerPage = overflow ? Math.Max(1, (int)Math.Ceiling(metrics.Count / (double)pageCount)) : metrics.Count;
             if (pageIndex >= pageCount) pageIndex = pageCount - 1;
             if (pageIndex < 0) pageIndex = 0;
             int first = overflow ? pageIndex * itemsPerPage : 0;
             int shown = Math.Min(itemsPerPage, metrics.Count - first);
-            int itemWidth = overflow || settings.AutoFit ? Math.Max(1, contentWidth / Math.Max(1, itemsPerPage)) : targetWidth;
+            int itemWidth = overflow || settings.AutoFit ? Math.Max(1, contentWidth / Math.Max(1, shown)) : targetWidth;
             previousPageBounds = overflow ? new Rectangle(1, 1, navigationWidth, Math.Max(1, Height - 2)) : Rectangle.Empty;
             nextPageBounds = overflow ? new Rectangle(Width - navigationWidth - 1, 1, navigationWidth, Math.Max(1, Height - 2)) : Rectangle.Empty;
             if (overflow) DrawNavigation(graphics, foreground);
@@ -217,6 +218,12 @@ namespace TaskbarMonitor
                 return true;
             }
             return false;
+        }
+
+        protected override void OnMouseClick(MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left && TryNavigate(e.Location)) return;
+            base.OnMouseClick(e);
         }
 
         public bool IsNavigationPoint(Point location)

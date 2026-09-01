@@ -81,6 +81,12 @@ namespace TaskbarMonitor
         public bool ShowSettingsOnManualLaunch { get; set; }
         public bool WidgetInteractionEnabled { get; set; }
         public bool OverflowPaging { get; set; }
+        public int PopupWidth { get; set; }
+        public int PopupHeight { get; set; }
+        public bool PopupPinned { get; set; }
+        public bool PopupPositionSaved { get; set; }
+        public int PopupX { get; set; }
+        public int PopupY { get; set; }
         public List<string> SelectedDisks { get; set; }
         public int BackgroundArgb { get; set; }
         public int ForegroundArgb { get; set; }
@@ -108,6 +114,10 @@ namespace TaskbarMonitor
             value.ShowSettingsOnManualLaunch = true;
             value.WidgetInteractionEnabled = true;
             value.OverflowPaging = true;
+            value.PopupWidth = 560;
+            value.PopupHeight = 90;
+            value.PopupPinned = false;
+            value.PopupPositionSaved = false;
             value.SelectedDisks = new List<string> { GetSystemDiskName() };
             value.BackgroundArgb = Color.FromArgb(238, 28, 28, 28).ToArgb();
             value.ForegroundArgb = Color.FromArgb(245, 245, 245).ToArgb();
@@ -169,6 +179,8 @@ namespace TaskbarMonitor
             if (TaskbarOffset < 0) TaskbarOffset = defaults.TaskbarOffset;
             if (InsideItemWidth < 48 || InsideItemWidth > 180) InsideItemWidth = defaults.InsideItemWidth;
             if (InsideHeight < 20 || InsideHeight > 48) InsideHeight = defaults.InsideHeight;
+            if (PopupWidth < 200 || PopupWidth > 1200) PopupWidth = defaults.PopupWidth;
+            if (PopupHeight < 48 || PopupHeight > 400) PopupHeight = defaults.PopupHeight;
             if (String.IsNullOrEmpty(InsideStyle)) InsideStyle = defaults.InsideStyle;
             if (OpacityPercent < 25 || OpacityPercent > 100) OpacityPercent = defaults.OpacityPercent;
             if (FontSize < 7.0f || FontSize > 18.0f) FontSize = defaults.FontSize;

@@ -274,6 +274,20 @@ namespace TaskbarMonitor
             if (startMonitor) StartMonitor();
         }
 
+        public void SetPopupPinned(bool pinned, Point location)
+        {
+            AppSettings updated = settings.Clone();
+            updated.PopupPinned = pinned;
+            if (pinned)
+            {
+                updated.PopupPositionSaved = true;
+                updated.PopupX = location.X;
+                updated.PopupY = location.Y;
+            }
+            settings = updated;
+            SettingsStore.Save(settings);
+        }
+
         public void StartMonitor()
         {
             if (widgetForm == null || widgetForm.IsDisposed)
@@ -393,6 +407,8 @@ namespace TaskbarMonitor
         private static readonly Color IntegratedBackgroundKey = Color.FromArgb(31, 31, 31);
         private readonly AppHost host;
         private readonly MetricBarControl bar;
+        private readonly Panel popupActions;
+        private readonly Button pinButton;
         private bool clickThrough;
         private bool fullscreenClickThrough;
         private bool embedded;
@@ -400,6 +416,12 @@ namespace TaskbarMonitor
         private bool hiddenForFullscreen;
         private bool hiddenForShellFlyout;
         private bool hiddenByUser;
+        private bool popupDragging;
+        private bool popupDragMoved;
+        private bool consumePopupClick;
+        private bool manualPopupLocation;
+        private Point popupDragStartCursor;
+        private Point popupDragStartLocation;
 
         public WidgetForm(AppHost owner)
         {
@@ -412,10 +434,32 @@ namespace TaskbarMonitor
             BackColor = Color.FromArgb(28, 28, 28);
             bar = new MetricBarControl();
             bar.Dock = DockStyle.Fill;
+            bar.MouseDown += BarMouseDown;
+            bar.MouseMove += BarMouseMove;
             bar.MouseClick += BarMouseClick;
             bar.MouseUp += BarMouseUp;
             bar.MouseDoubleClick += BarMouseDoubleClick;
             Controls.Add(bar);
+
+            popupActions = new Panel();
+            popupActions.Dock = DockStyle.Right;
+            popupActions.Width = 72;
+            popupActions.Padding = new Padding(4, 5, 4, 0);
+            popupActions.BackColor = Color.FromArgb(28, 28, 28);
+            popupActions.Visible = false;
+            pinButton = new Button();
+            pinButton.Dock = DockStyle.Top;
+            pinButton.Height = 25;
+            pinButton.TabStop = false;
+            pinButton.FlatStyle = FlatStyle.Flat;
+            pinButton.FlatAppearance.BorderColor = Color.FromArgb(85, 255, 255, 255);
+            pinButton.BackColor = Color.FromArgb(45, 45, 45);
+            pinButton.ForeColor = Color.White;
+            pinButton.Font = new Font("Segoe UI", 8.0f, FontStyle.Regular, GraphicsUnit.Point);
+            pinButton.Click += TogglePopupPin;
+            popupActions.Controls.Add(pinButton);
+            Controls.Add(popupActions);
+            popupActions.BringToFront();
         }
 
         protected override bool ShowWithoutActivation { get { return true; } }
@@ -445,13 +489,47 @@ namespace TaskbarMonitor
         {
             if (e.Button == MouseButtons.Left && e.Clicks == 1)
             {
-                if (bar.TryNavigate(e.Location)) return;
+                if (consumePopupClick)
+                {
+                    consumePopupClick = false;
+                    return;
+                }
                 host.ToggleDetail();
             }
         }
 
+        private void BarMouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left || !IsPopupMode() || host.Settings.PopupPinned || bar.IsNavigationPoint(e.Location)) return;
+            popupDragging = true;
+            popupDragMoved = false;
+            popupDragStartCursor = Cursor.Position;
+            popupDragStartLocation = Location;
+            bar.Capture = true;
+        }
+
+        private void BarMouseMove(object sender, MouseEventArgs e)
+        {
+            if (!popupDragging) return;
+            Point cursor = Cursor.Position;
+            int deltaX = cursor.X - popupDragStartCursor.X;
+            int deltaY = cursor.Y - popupDragStartCursor.Y;
+            if (!popupDragMoved && Math.Abs(deltaX) + Math.Abs(deltaY) < 4) return;
+            popupDragMoved = true;
+            manualPopupLocation = true;
+            Rectangle desired = new Rectangle(popupDragStartLocation.X + deltaX, popupDragStartLocation.Y + deltaY, Width, Height);
+            Location = ClampPopupBounds(desired).Location;
+        }
+
         private void BarMouseUp(object sender, MouseEventArgs e)
         {
+            if (e.Button == MouseButtons.Left && popupDragging)
+            {
+                popupDragging = false;
+                bar.Capture = false;
+                if (popupDragMoved) consumePopupClick = true;
+                return;
+            }
             if (e.Button == MouseButtons.Right)
                 host.ShowWidgetContextMenu(bar, new Point(e.X, e.Y));
         }
@@ -461,10 +539,27 @@ namespace TaskbarMonitor
             if (e.Button == MouseButtons.Left && !bar.IsNavigationPoint(e.Location)) host.OpenTaskManager();
         }
 
+        private void TogglePopupPin(object sender, EventArgs e)
+        {
+            if (!IsPopupMode()) return;
+            bool pinned = !host.Settings.PopupPinned;
+            host.SetPopupPinned(pinned, Location);
+            manualPopupLocation = true;
+            UpdatePopupControls();
+            PositionWidget();
+        }
+
         public void UpdateData(AppSettings settings, MetricSnapshot snapshot, MetricHistory history)
         {
             bool insideMode = String.Equals(settings.PositionMode, "Inside", StringComparison.OrdinalIgnoreCase);
-            if (!String.Equals(settings.PositionMode, "Popup", StringComparison.OrdinalIgnoreCase)) hiddenByUser = false;
+            bool popupMode = String.Equals(settings.PositionMode, "Popup", StringComparison.OrdinalIgnoreCase);
+            if (!popupMode)
+            {
+                hiddenByUser = false;
+                manualPopupLocation = false;
+            }
+            popupActions.Visible = popupMode;
+            UpdatePopupControls();
             bar.SetIntegratedStyle(insideMode, IntegratedBackgroundKey);
             bar.Configure(settings, snapshot, history);
             PositionWidget();
@@ -472,7 +567,7 @@ namespace TaskbarMonitor
             if (seamless)
             {
                 BackColor = IntegratedBackgroundKey;
-                TransparencyKey = settings.WidgetInteractionEnabled ? Color.Empty : IntegratedBackgroundKey;
+                TransparencyKey = Color.Empty;
                 Opacity = 1.0;
                 Region previous = Region;
                 Region = null;
@@ -504,19 +599,32 @@ namespace TaskbarMonitor
             if (String.Equals(settings.PositionMode, "Above", StringComparison.OrdinalIgnoreCase) || popupMode)
             {
                 DetachFromTaskbar();
-                height = 48;
                 if (popupMode)
                 {
-                    width = Math.Min(preferred, Math.Max(160, taskbar.Width - 24));
-                    x = taskbar.Right - width - 12;
+                    if (popupDragging) return;
+                    width = Math.Max(200, Math.Min(1200, settings.PopupWidth));
+                    height = Math.Max(48, Math.Min(400, settings.PopupHeight));
+                    Rectangle desired;
+                    if (settings.PopupPinned && settings.PopupPositionSaved)
+                        desired = new Rectangle(settings.PopupX, settings.PopupY, width, height);
+                    else if (manualPopupLocation && Width > 0 && Height > 0)
+                        desired = new Rectangle(Left, Top, width, height);
+                    else
+                        desired = new Rectangle(taskbar.Right - width - 12, taskbar.Top - height - 4, width, height);
+                    Rectangle bounded = ClampPopupBounds(desired);
+                    x = bounded.X;
+                    y = bounded.Y;
+                    width = bounded.Width;
+                    height = bounded.Height;
                 }
                 else
                 {
+                    height = 48;
                     x = taskbar.Left + settings.TaskbarOffset;
                     width = Math.Min(preferred, Math.Max(160, taskbar.Right - x - 12));
+                    y = taskbar.Top - height - 4;
+                    if (x + width > screen.Right - 8) x = Math.Max(screen.Left + 8, screen.Right - width - 8);
                 }
-                y = taskbar.Top - height - 4;
-                if (x + width > screen.Right - 8) x = Math.Max(screen.Left + 8, screen.Right - width - 8);
                 NativeMethods.SetWindowPos(Handle, NativeMethods.HWND_TOP, x, y, Math.Max(160, width), Math.Max(28, height),
                     NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_FRAMECHANGED);
             }
@@ -588,6 +696,28 @@ namespace TaskbarMonitor
                 BringToFront();
                 NativeMethods.SetForegroundWindow(Handle);
             }
+        }
+
+        private bool IsPopupMode()
+        {
+            return String.Equals(host.Settings.PositionMode, "Popup", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void UpdatePopupControls()
+        {
+            pinButton.Text = host.Settings.PopupPinned ? "고정 해제" : "위치 고정";
+            pinButton.BackColor = host.Settings.PopupPinned ? Color.FromArgb(0, 105, 125) : Color.FromArgb(45, 45, 45);
+        }
+
+        private static Rectangle ClampPopupBounds(Rectangle desired)
+        {
+            Screen target = Screen.FromRectangle(desired);
+            Rectangle area = target.WorkingArea;
+            int width = Math.Min(Math.Max(200, desired.Width), Math.Max(200, area.Width));
+            int height = Math.Min(Math.Max(48, desired.Height), Math.Max(48, area.Height));
+            int x = Math.Max(area.Left, Math.Min(desired.X, area.Right - width));
+            int y = Math.Max(area.Top, Math.Min(desired.Y, area.Bottom - height));
+            return new Rectangle(x, y, width, height);
         }
 
         private void AttachToTaskbar(IntPtr taskbarHandle)

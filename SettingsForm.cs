@@ -18,6 +18,8 @@ namespace TaskbarMonitor
         private readonly NumericUpDown offsetInput;
         private readonly NumericUpDown insideItemWidthInput;
         private readonly NumericUpDown insideHeightInput;
+        private readonly NumericUpDown popupWidthInput;
+        private readonly NumericUpDown popupHeightInput;
         private readonly NumericUpDown opacityInput;
         private readonly NumericUpDown fontInput;
         private readonly ComboBox positionInput;
@@ -45,8 +47,8 @@ namespace TaskbarMonitor
             Text = "Taskbar Monitor 설정";
             Icon = IconFactory.CreateGraphIcon(Color.FromArgb(0, 183, 195));
             StartPosition = FormStartPosition.CenterScreen;
-            Size = new Size(800, 1000);
-            MinimumSize = new Size(760, 940);
+            Size = new Size(800, 1040);
+            MinimumSize = new Size(760, 980);
             AutoScaleMode = AutoScaleMode.Dpi;
             Font = new Font("Segoe UI", 9.0f);
             BackColor = Color.FromArgb(245, 245, 245);
@@ -106,7 +108,7 @@ namespace TaskbarMonitor
             GroupBox globalGroup = new GroupBox();
             globalGroup.Text = "크기·동작·성능";
             globalGroup.Location = new Point(18, 446);
-            globalGroup.Size = new Size(748, 235);
+            globalGroup.Size = new Size(748, 270);
             globalGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(globalGroup);
 
@@ -114,11 +116,13 @@ namespace TaskbarMonitor
             table.Dock = DockStyle.Fill;
             table.Padding = new Padding(10, 8, 10, 8);
             table.ColumnCount = 4;
-            table.RowCount = 6;
+            table.RowCount = 7;
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 21));
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 29));
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 21));
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 29));
+            for (int rowIndex = 0; rowIndex < 6; rowIndex++) table.RowStyles.Add(new RowStyle(SizeType.Absolute, 29));
+            table.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             globalGroup.Controls.Add(table);
 
             intervalInput = NewNumber(200, 10000, working.UpdateIntervalMs, 100, 0);
@@ -127,6 +131,8 @@ namespace TaskbarMonitor
             offsetInput = NewNumber(0, 1200, working.TaskbarOffset, 5, 0);
             insideItemWidthInput = NewNumber(48, 180, working.InsideItemWidth, 2, 0);
             insideHeightInput = NewNumber(20, 48, working.InsideHeight, 1, 0);
+            popupWidthInput = NewNumber(200, 1200, working.PopupWidth, 10, 0);
+            popupHeightInput = NewNumber(48, 400, working.PopupHeight, 5, 0);
             opacityInput = NewNumber(25, 100, working.OpacityPercent, 1, 0);
             fontInput = NewNumber(7, 18, (decimal)working.FontSize, 0.5m, 1);
             int positionIndex = working.PositionMode == "Popup" ? 2 : (working.PositionMode == "Above" ? 1 : 0);
@@ -139,6 +145,7 @@ namespace TaskbarMonitor
             AddSettingRow(table, 2, "투명도 (%)", opacityInput, "글꼴 크기", fontInput);
             AddSettingRow(table, 3, "표시 위치", positionInput, "전체화면 동작", fullscreenInput);
             AddSettingRow(table, 4, "내부 항목 폭 (px)", insideItemWidthInput, "내부 높이 (px)", insideHeightInput);
+            AddSettingRow(table, 5, "팝업 너비 (px)", popupWidthInput, "팝업 높이 (px)", popupHeightInput);
 
             FlowLayoutPanel checks = new FlowLayoutPanel();
             checks.Dock = DockStyle.Fill;
@@ -158,12 +165,12 @@ namespace TaskbarMonitor
             checks.Controls.Add(seamlessInput);
             checks.Controls.Add(widgetInteractionInput);
             checks.Controls.Add(overflowPagingInput);
-            table.Controls.Add(checks, 0, 5);
+            table.Controls.Add(checks, 0, 6);
             table.SetColumnSpan(checks, 4);
 
             GroupBox diskGroup = new GroupBox();
             diskGroup.Text = "표시할 디스크 드라이브";
-            diskGroup.Location = new Point(18, 692);
+            diskGroup.Location = new Point(18, 727);
             diskGroup.Size = new Size(748, 82);
             diskGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             diskList = new CheckedListBox();
@@ -185,7 +192,7 @@ namespace TaskbarMonitor
 
             GroupBox helpGroup = new GroupBox();
             helpGroup.Text = "설정 도움말";
-            helpGroup.Location = new Point(18, 785);
+            helpGroup.Location = new Point(18, 820);
             helpGroup.Size = new Size(748, 100);
             helpGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             Label helpText = new Label();
@@ -194,15 +201,15 @@ namespace TaskbarMonitor
             helpText.TextAlign = ContentAlignment.MiddleLeft;
             helpText.Text =
                 "권장값은 갱신 1000ms, 그래프 기록 60초입니다. 갱신 값을 낮추면 더 빠르게 반응하지만 CPU 사용량이 늘 수 있습니다.\r\n" +
-                "최대 너비·왼쪽 여백은 배치 범위, 내부 항목 폭·높이는 작업 표시줄 안쪽 칸 크기를 조절합니다.\r\n" +
-                "항목이 공간을 넘으면 좌우 화살표로 페이지를 바꿉니다. 클릭 인식을 끄면 트레이 아이콘이나 EXE 재실행으로 설정을 열 수 있습니다.";
+                "최대 너비·왼쪽 여백은 작업표시줄 배치, 팝업 너비·높이는 독립 팝업 창 크기를 조절합니다.\r\n" +
+                "팝업 빈 곳을 끌어 이동하고 '위치 고정'을 누르면 재실행 후에도 그 자리에 고정됩니다. 항목 초과 시 좌우 화살표로 넘깁니다.";
             helpGroup.Controls.Add(helpText);
             Controls.Add(helpGroup);
 
             FlowLayoutPanel bottom = new FlowLayoutPanel();
             bottom.FlowDirection = FlowDirection.RightToLeft;
             bottom.WrapContents = false;
-            bottom.Location = new Point(18, 907);
+            bottom.Location = new Point(18, 942);
             bottom.Size = new Size(748, 43);
             bottom.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
             Button startButton = NewButton("저장하고 표시 시작", SaveAndStart);
@@ -320,13 +327,15 @@ namespace TaskbarMonitor
             helpTip.SetToolTip(fullscreenInput, "숨기기: 전체화면에서 감춤 / 항상 표시: 위에 유지 / 클릭 통과: 보이지만 마우스 입력은 전체화면 앱으로 전달합니다.");
             helpTip.SetToolTip(insideItemWidthInput, "작업표시줄 안쪽 모드에서 CPU·RAM 등 항목 하나가 차지할 기준 폭입니다. 폭이 작으면 이름이 짧게 표시됩니다.");
             helpTip.SetToolTip(insideHeightInput, "작업표시줄 안쪽 위젯의 높이입니다. 기본 28px이며 작업표시줄 높이를 넘지 않도록 자동 제한됩니다.");
+            helpTip.SetToolTip(popupWidthInput, "팝업 창 모드의 가로 크기입니다. 200~1200px 범위에서 조절할 수 있습니다.");
+            helpTip.SetToolTip(popupHeightInput, "팝업 창 모드의 세로 크기입니다. 그래프를 크게 보고 싶으면 값을 높이세요.");
             helpTip.SetToolTip(autoFitInput, "날씨 버튼과 시작 버튼 사이의 실제 빈 공간에 맞춰 항목 폭을 자동으로 줄입니다.");
             helpTip.SetToolTip(pauseHiddenInput, "위젯이 보이지 않을 때 갱신 주기를 5초로 늦춰 CPU 사용량을 줄입니다.");
             helpTip.SetToolTip(startupInput, "Windows 로그인 후 저장된 설정으로 위젯을 자동 실행합니다.");
             helpTip.SetToolTip(showSettingsInput, "EXE를 직접 실행했을 때 위젯보다 설정창을 먼저 엽니다. Windows 자동 시작에는 적용되지 않습니다.");
             helpTip.SetToolTip(seamlessInput, "패널 배경과 테두리를 투명 처리해 작업표시줄 글자·그래프만 보이게 합니다.");
-            helpTip.SetToolTip(widgetInteractionInput, "켜면 위젯의 빈 공간까지 클릭·우클릭됩니다. 끄면 위젯 전체가 작업표시줄로 클릭 통과됩니다.");
-            helpTip.SetToolTip(overflowPagingInput, "항목이 표시 공간보다 많을 때 폭을 계속 줄이지 않고 좌우 화살표로 페이지를 전환합니다.");
+            helpTip.SetToolTip(widgetInteractionInput, "켜면 위젯의 빈 공간까지 클릭·우클릭되고 팝업을 끌어 이동할 수 있습니다. 끄면 위젯 전체가 뒤 창으로 클릭 통과됩니다.");
+            helpTip.SetToolTip(overflowPagingInput, "항목이 표시 공간보다 많을 때 폭을 계속 줄이지 않고 좌우 화살표로 페이지를 전환합니다. 페이지별 항목 수도 최대한 균등하게 나눕니다.");
             helpTip.SetToolTip(diskList, "동시에 감시할 드라이브를 여러 개 선택합니다. 각 드라이브의 디스크 사용 시간을 별도 항목과 그래프로 표시합니다.");
         }
 
@@ -383,7 +392,7 @@ namespace TaskbarMonitor
         {
             metricGrid.CellValueChanged += delegate { if (!loading) RefreshPreview(); };
             metricGrid.CellEndEdit += delegate { if (!loading) RefreshPreview(); };
-            foreach (Control control in new Control[] { intervalInput, historyInput, widthInput, offsetInput, insideItemWidthInput, insideHeightInput, opacityInput, fontInput })
+            foreach (Control control in new Control[] { intervalInput, historyInput, widthInput, offsetInput, insideItemWidthInput, insideHeightInput, popupWidthInput, popupHeightInput, opacityInput, fontInput })
                 ((NumericUpDown)control).ValueChanged += delegate { RefreshPreview(); };
             positionInput.SelectedIndexChanged += delegate { RefreshPreview(); };
             fullscreenInput.SelectedIndexChanged += delegate { RefreshPreview(); };
@@ -391,10 +400,6 @@ namespace TaskbarMonitor
             widgetInteractionInput.CheckedChanged += delegate { RefreshPreview(); };
             overflowPagingInput.CheckedChanged += delegate { RefreshPreview(); };
             diskList.ItemCheck += delegate { BeginInvoke((MethodInvoker)delegate { RefreshPreview(); }); };
-            preview.MouseClick += delegate(object sender, MouseEventArgs e)
-            {
-                if (e.Button == MouseButtons.Left) preview.TryNavigate(e.Location);
-            };
             WireDropDownPause(positionInput);
             WireDropDownPause(fullscreenInput);
             metricGrid.EditingControlShowing += MetricGridEditingControlShowing;
@@ -447,6 +452,8 @@ namespace TaskbarMonitor
             working.TaskbarOffset = (int)offsetInput.Value;
             working.InsideItemWidth = (int)insideItemWidthInput.Value;
             working.InsideHeight = (int)insideHeightInput.Value;
+            working.PopupWidth = (int)popupWidthInput.Value;
+            working.PopupHeight = (int)popupHeightInput.Value;
             working.OpacityPercent = (int)opacityInput.Value;
             working.FontSize = (float)fontInput.Value;
             working.PositionMode = positionInput.SelectedIndex == 2 ? "Popup" : (positionInput.SelectedIndex == 1 ? "Above" : "Inside");
