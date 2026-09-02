@@ -170,8 +170,13 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 
 ## 배포 파일
 
-배포 폴더에는 항상 최신 빌드 한 세트만 유지합니다. 파일명에 버전 번호를 붙이지 않습니다.
+사용자 폴더에는 최신 실행 파일 하나만 바로 보이게 두고 나머지 자료는 하위 폴더로 구분합니다. 파일명에는 버전 번호를 붙이지 않습니다.
 
-- `TaskbarMonitor.exe`: 바로 실행하는 최신 프로그램
-- `TaskbarMonitor.zip`: EXE와 공개 README 묶음
-- `TaskbarMonitor-source.zip`: 최신 소스 코드 묶음
+```text
+TaskbarMonitor\
+├─ TaskbarMonitor.exe
+├─ docs\README.md
+├─ packages\TaskbarMonitor.zip
+├─ packages\TaskbarMonitor-source.zip
+└─ local\                 로컬 개발 기록, 공개 배포 제외
+```
