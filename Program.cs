@@ -123,6 +123,8 @@ namespace TaskbarMonitor
                         NativeMethods.FindWindowEx(taskbarWindow, IntPtr.Zero, null, "Taskbar Monitor");
                     report["embeddedWidgetFound"] = embeddedWidget != IntPtr.Zero;
                     report["embeddedWidgetVisible"] = embeddedWidget != IntPtr.Zero && NativeMethods.IsWindowVisible(embeddedWidget);
+                    report["embeddedWidgetTopChild"] = embeddedWidget != IntPtr.Zero &&
+                        NativeMethods.GetTopWindow(taskbarWindow) == embeddedWidget;
                     IntPtr floatingWidget = NativeMethods.FindWindow(null, "Taskbar Monitor");
                     report["floatingWidgetFound"] = floatingWidget != IntPtr.Zero;
                     report["floatingWidgetVisible"] = floatingWidget != IntPtr.Zero && NativeMethods.IsWindowVisible(floatingWidget);

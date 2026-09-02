@@ -665,7 +665,7 @@ namespace TaskbarMonitor
                 if (embedded)
                 {
                     NativeMethods.SetWindowPos(Handle, NativeMethods.HWND_TOP, x, y, Math.Max(160, width), Math.Max(28, height),
-                        NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_NOZORDER | NativeMethods.SWP_FRAMECHANGED);
+                        NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_FRAMECHANGED);
                 }
                 else
                 {

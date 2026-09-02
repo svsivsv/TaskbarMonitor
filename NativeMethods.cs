@@ -130,6 +130,9 @@ namespace TaskbarMonitor
         [DllImport("user32.dll")]
         public static extern IntPtr GetParent(IntPtr child);
 
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetTopWindow(IntPtr hwnd);
+
         [DllImport("user32.dll", SetLastError = true)]
         public static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
 
