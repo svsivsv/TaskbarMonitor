@@ -115,6 +115,10 @@ namespace TaskbarMonitor
                     IntPtr desktopWindow = NativeMethods.FindWindow("Progman", null);
                     bool desktopExcluded = !NativeMethods.IsWindowFullscreen(desktopWindow);
                     report["desktopExcludedFromFullscreen"] = desktopExcluded;
+                    IntPtr taskbarWindow = NativeMethods.GetPrimaryTaskbarHandle();
+                    IntPtr embeddedWidget = taskbarWindow == IntPtr.Zero ? IntPtr.Zero :
+                        NativeMethods.FindWindowEx(taskbarWindow, IntPtr.Zero, null, "Taskbar Monitor");
+                    report["embeddedWidgetFound"] = embeddedWidget != IntPtr.Zero;
                     MetricOption memoryOption = settings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Memory; });
                     memoryOption.ValueFormat = "UsedTotalGb";
                     bool memoryFormatSupported = snapshot.FormatValue(memoryOption, true, null).Contains("/");

@@ -71,7 +71,6 @@ namespace TaskbarMonitor
         private readonly MetricHistory history;
         private MetricSnapshot snapshot;
         private readonly Timer refreshTimer;
-        private readonly Timer showSettingsTimer;
         private readonly Timer contextMenuDismissTimer;
         private readonly NotifyIcon trayIcon;
         private readonly ContextMenuStrip contextMenu;
@@ -96,14 +95,6 @@ namespace TaskbarMonitor
 
             messageSink = new MessageSink();
             messageSink.ShowSettingsRequested += delegate { RequestShowSettings(); };
-
-            showSettingsTimer = new Timer();
-            showSettingsTimer.Interval = 180;
-            showSettingsTimer.Tick += delegate
-            {
-                showSettingsTimer.Stop();
-                ShowSettings();
-            };
 
             contextMenu = BuildContextMenu();
             contextMenu.Opened += delegate
@@ -143,6 +134,14 @@ namespace TaskbarMonitor
         {
             ContextMenuStrip menu = new ContextMenuStrip();
             menu.Items.Add("위젯 설정 수정", null, delegate { RequestShowSettings(); });
+            menu.Items.Add("작업 표시줄 안쪽으로 복귀", null, delegate
+            {
+                AppSettings updated = settings.Clone();
+                updated.PositionMode = "Inside";
+                updated.PopupPinned = false;
+                updated.WidgetInteractionEnabled = true;
+                ApplySettings(updated, true);
+            });
             menu.Items.Add("상세 그래프 열기/닫기", null, delegate { ToggleDetail(); });
             menu.Items.Add("위젯 표시/숨기기", null, delegate { ToggleWidget(); });
             interactionMenuItem = new ToolStripMenuItem("위젯 전체 영역 클릭 인식");
@@ -170,8 +169,6 @@ namespace TaskbarMonitor
         {
             if (contextMenu != null && contextMenu.Visible) contextMenu.Close();
             ShowSettings();
-            showSettingsTimer.Stop();
-            showSettingsTimer.Start();
         }
 
         public void ShowWidgetContextMenu(Control source, Point location)
@@ -369,12 +366,10 @@ namespace TaskbarMonitor
 
         private static void ActivateSettingsForm(Form form)
         {
-            bool wasTopMost = form.TopMost;
             form.TopMost = true;
             form.BringToFront();
             form.Activate();
             NativeMethods.SetForegroundWindow(form.Handle);
-            form.TopMost = wasTopMost;
         }
 
         public void OpenTaskManager()
@@ -391,8 +386,6 @@ namespace TaskbarMonitor
         protected override void ExitThreadCore()
         {
             refreshTimer.Stop();
-            showSettingsTimer.Stop();
-            showSettingsTimer.Dispose();
             contextMenuDismissTimer.Stop();
             contextMenuDismissTimer.Dispose();
             trayIcon.Visible = false;

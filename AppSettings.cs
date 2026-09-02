@@ -95,7 +95,7 @@ namespace TaskbarMonitor
         public static AppSettings CreateDefault()
         {
             AppSettings value = new AppSettings();
-            value.SettingsVersion = 2;
+            value.SettingsVersion = 3;
             value.UpdateIntervalMs = 1000;
             value.HistorySeconds = 60;
             value.MaxWidth = 560;
@@ -163,6 +163,15 @@ namespace TaskbarMonitor
                 WidgetInteractionEnabled = true;
                 OverflowPaging = true;
                 SettingsVersion = 2;
+            }
+            if (SettingsVersion < 3)
+            {
+                if (String.Equals(PositionMode, "Popup", StringComparison.OrdinalIgnoreCase))
+                {
+                    WidgetInteractionEnabled = true;
+                    PopupPinned = false;
+                }
+                SettingsVersion = 3;
             }
             if (Metrics == null) Metrics = new List<MetricOption>();
             foreach (MetricOption defaultMetric in defaults.Metrics)

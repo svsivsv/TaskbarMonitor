@@ -34,6 +34,7 @@ namespace TaskbarMonitor
         private readonly CheckBox popupPinnedInput;
         private readonly CheckedListBox diskList;
         private readonly ToolTip helpTip;
+        private readonly Label applyStatus;
         private MetricSnapshot lastSnapshot;
         private MetricHistory lastHistory;
         private bool loading;
@@ -53,6 +54,7 @@ namespace TaskbarMonitor
             AutoScaleMode = AutoScaleMode.Dpi;
             Font = new Font("Segoe UI", 9.0f);
             BackColor = Color.FromArgb(245, 245, 245);
+            TopMost = true;
             helpTip = new ToolTip();
             helpTip.ToolTipTitle = "설정 설명";
             helpTip.ToolTipIcon = ToolTipIcon.Info;
@@ -168,6 +170,7 @@ namespace TaskbarMonitor
             checks.Controls.Add(widgetInteractionInput);
             checks.Controls.Add(overflowPagingInput);
             checks.Controls.Add(popupPinnedInput);
+            popupPinnedInput.Enabled = positionInput.SelectedIndex == 2;
             table.Controls.Add(checks, 0, 6);
             table.SetColumnSpan(checks, 4);
 
@@ -215,7 +218,7 @@ namespace TaskbarMonitor
             bottom.Location = new Point(18, 942);
             bottom.Size = new Size(748, 43);
             bottom.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
-            Button startButton = NewButton("저장하고 표시 시작", SaveAndStart);
+            Button startButton = NewButton("저장하고 표시 적용", SaveAndStart);
             startButton.AutoSize = true;
             startButton.Height = 32;
             Button applyButton = NewButton("적용", ApplyOnly);
@@ -225,6 +228,11 @@ namespace TaskbarMonitor
             bottom.Controls.Add(startButton);
             bottom.Controls.Add(applyButton);
             bottom.Controls.Add(closeButton);
+            applyStatus = new Label();
+            applyStatus.AutoSize = true;
+            applyStatus.ForeColor = Color.FromArgb(0, 110, 80);
+            applyStatus.Margin = new Padding(12, 9, 3, 3);
+            bottom.Controls.Add(applyStatus);
             Controls.Add(bottom);
             AcceptButton = startButton;
 
@@ -398,7 +406,13 @@ namespace TaskbarMonitor
             metricGrid.CellEndEdit += delegate { if (!loading) RefreshPreview(); };
             foreach (Control control in new Control[] { intervalInput, historyInput, widthInput, offsetInput, insideItemWidthInput, insideHeightInput, popupWidthInput, popupHeightInput, opacityInput, fontInput })
                 ((NumericUpDown)control).ValueChanged += delegate { RefreshPreview(); };
-            positionInput.SelectedIndexChanged += delegate { RefreshPreview(); };
+            positionInput.SelectedIndexChanged += delegate
+            {
+                if (positionInput.SelectedIndex == 2 && !widgetInteractionInput.Checked)
+                    widgetInteractionInput.Checked = true;
+                popupPinnedInput.Enabled = positionInput.SelectedIndex == 2;
+                RefreshPreview();
+            };
             fullscreenInput.SelectedIndexChanged += delegate { RefreshPreview(); };
             autoFitInput.CheckedChanged += delegate { RefreshPreview(); };
             widgetInteractionInput.CheckedChanged += delegate { RefreshPreview(); };
@@ -514,7 +528,7 @@ namespace TaskbarMonitor
                 return;
             }
             host.ApplySettings(working, true);
-            Close();
+            applyStatus.Text = "저장·표시 적용됨";
         }
 
         private void ApplyOnly(object sender, EventArgs e)
@@ -522,6 +536,7 @@ namespace TaskbarMonitor
             ReadControlsToWorking();
             host.ApplySettings(working, false);
             RefreshPreview();
+            applyStatus.Text = "적용됨";
         }
 
         private void SetAllEnabled(bool value)
