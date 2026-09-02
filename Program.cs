@@ -397,6 +397,24 @@ namespace TaskbarMonitor
                     image.Save(Path.Combine(directory, "bar-preview-paged-next.png"));
                 }
             }
+            using (MetricBarControl compactBar = new MetricBarControl())
+            {
+                AppSettings compactSettings = settings.Clone();
+                compactSettings.PositionMode = "Inside";
+                compactSettings.MaxWidth = 300;
+                compactSettings.InsideItemWidth = 70;
+                compactSettings.AutoFit = true;
+                compactSettings.OverflowPaging = false;
+                compactSettings.SelectedDisks = new List<string> { "C:" };
+                compactBar.Size = new Size(300, 28);
+                compactBar.SetIntegratedStyle(true, Color.FromArgb(31, 31, 31));
+                compactBar.Configure(compactSettings, snapshot, history);
+                using (Bitmap image = new Bitmap(compactBar.Width, compactBar.Height))
+                {
+                    compactBar.DrawToBitmap(image, new Rectangle(Point.Empty, image.Size));
+                    image.Save(Path.Combine(directory, "bar-preview-compact.png"));
+                }
+            }
         }
     }
 }

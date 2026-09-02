@@ -275,13 +275,18 @@ namespace TaskbarMonitor
             Rectangle inner = new Rectangle(bounds.Left + padding, bounds.Top + 1, Math.Max(1, bounds.Width - padding * 2), Math.Max(1, bounds.Height - 2));
             bool veryNarrow = bounds.Width < 62;
             bool compact = bounds.Width < 92;
-            string label = veryNarrow ? ShortLabel(item) : item.Label;
             string value = option.ShowValue ? snapshot.FormatValue(option, true, item.DiskName) : String.Empty;
             int graphThreshold = integratedStyle ? 20 : 25;
             int textHeight = option.ShowGraph && inner.Height >= graphThreshold ? (integratedStyle ? 13 : 16) : inner.Height;
-            Rectangle labelRect = new Rectangle(inner.Left, inner.Top, Math.Max(1, inner.Width / 2), textHeight);
+            int halfWidth = Math.Max(1, inner.Width / 2);
+            int minimumValueWidth = option.ShowValue ? Math.Min(28, halfWidth) : 0;
+            int maximumLabelWidth = Math.Max(1, inner.Width - minimumValueWidth);
+            int measuredLabelWidth = TextRenderer.MeasureText(item.Label, labelFont,
+                new Size(Int32.MaxValue, textHeight), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
+            int labelWidth = Math.Min(maximumLabelWidth, Math.Max(halfWidth, measuredLabelWidth));
+            Rectangle labelRect = new Rectangle(inner.Left, inner.Top, labelWidth, textHeight);
             Rectangle valueRect = new Rectangle(labelRect.Right, inner.Top, Math.Max(1, inner.Right - labelRect.Right), textHeight);
-            TextRenderer.DrawText(graphics, label, labelFont, labelRect, option.Color,
+            TextRenderer.DrawText(graphics, item.Label, labelFont, labelRect, option.Color,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
             if (option.ShowValue)
                 TextRenderer.DrawText(graphics, value, valueFont, valueRect, foreground,
@@ -297,22 +302,8 @@ namespace TaskbarMonitor
             else if (!option.ShowValue && compact)
             {
                 Rectangle centered = new Rectangle(inner.Left, inner.Top, inner.Width, inner.Height);
-                TextRenderer.DrawText(graphics, label, valueFont, centered, option.Color,
+                TextRenderer.DrawText(graphics, item.Label, valueFont, centered, option.Color,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
-            }
-        }
-
-        private static string ShortLabel(DisplayMetricItem item)
-        {
-            if (!String.IsNullOrEmpty(item.DiskName)) return item.DiskName.TrimEnd(':');
-            switch (item.Option.Kind)
-            {
-                case MetricKind.Cpu: return "C";
-                case MetricKind.Memory: return "M";
-                case MetricKind.Disk: return "D";
-                case MetricKind.Network: return "N";
-                case MetricKind.Gpu: return "G";
-                default: return "?";
             }
         }
     }
