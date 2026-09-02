@@ -119,6 +119,13 @@ namespace TaskbarMonitor
                 report["insideSeamlessCornerArgb"] = seamlessPixel;
                 report["insidePanelCornerArgb"] = panelPixel;
                 report["insideStyleRenderingPassed"] = insideStyleRenderingPassed;
+                Rectangle resizeWorkArea = new Rectangle(0, 0, 1920, 1040);
+                Size normalResize = WidgetForm.CalculatePopupResizeSize(new Rectangle(100, 100, 500, 72), 120, 80, resizeWorkArea);
+                Size minimumResize = WidgetForm.CalculatePopupResizeSize(new Rectangle(100, 100, 500, 72), -900, -900, resizeWorkArea);
+                Size maximumResize = WidgetForm.CalculatePopupResizeSize(new Rectangle(1700, 900, 500, 72), 900, 900, resizeWorkArea);
+                bool popupResizeCalculationPassed = normalResize == new Size(620, 152) &&
+                    minimumResize == new Size(200, 48) && maximumResize == new Size(220, 140);
+                report["popupResizeCalculationPassed"] = popupResizeCalculationPassed;
                 bool widgetInputPolicyPassed = WidgetForm.ShouldAcceptWidgetInput(true, false) &&
                     !WidgetForm.ShouldAcceptWidgetInput(false, false) &&
                     !WidgetForm.ShouldAcceptWidgetInput(true, true) &&
@@ -289,7 +296,7 @@ namespace TaskbarMonitor
                         snapshot.CpuPercent <= 100.0 && desktopExcluded && memoryFormatSupported &&
                         snapshot.DiskPercents != null && snapshot.DiskPercents.Count == settings.SelectedDisks.Count &&
                         multiDiskDisplayCount == expectedMultiDiskDisplayCount && pagingPassed && embeddedDockingPassed &&
-                        defaultResetPassed && hiddenSamplingPolicyPassed && insideStyleRenderingPassed &&
+                        defaultResetPassed && hiddenSamplingPolicyPassed && insideStyleRenderingPassed && popupResizeCalculationPassed &&
                         widgetInputPolicyPassed && contextMenuAutoDismissConfigured &&
                         clickThroughNativeStatePassed && runtimeInteractionMatchesSettings && disabledDoubleClickSuppressed &&
                         String.Equals(settings.FloatingZOrder, "Normal", StringComparison.OrdinalIgnoreCase) &&

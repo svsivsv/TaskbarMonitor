@@ -216,11 +216,12 @@ namespace TaskbarMonitor
 
         private void DrawResizeGrip(Graphics graphics, Color foreground)
         {
-            // Keep the visible mark small so it does not cover the final graph.
-            // The actual hit-test area is intentionally larger in WidgetForm.
+            // The visible mark stays compact while WidgetForm provides a much
+            // larger hit area and an explicit resize cursor.
             using (Pen pen = new Pen(Color.FromArgb(185, foreground), 1.35f))
             {
-                graphics.DrawLine(pen, Width - 15, Height - 4, Width - 4, Height - 15);
+                graphics.DrawLine(pen, Width - 23, Height - 4, Width - 4, Height - 23);
+                graphics.DrawLine(pen, Width - 16, Height - 4, Width - 4, Height - 16);
                 graphics.DrawLine(pen, Width - 9, Height - 4, Width - 4, Height - 9);
             }
         }

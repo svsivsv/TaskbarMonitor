@@ -545,7 +545,7 @@ namespace TaskbarMonitor
 
     public sealed class WidgetForm : Form
     {
-        private const int PopupResizeGripHitSize = 28;
+        private const int PopupResizeGripHitSize = 44;
         private static readonly Color IntegratedBackgroundKey = Color.FromArgb(31, 31, 31);
         private readonly AppHost host;
         private readonly MetricBarControl bar;
@@ -559,6 +559,7 @@ namespace TaskbarMonitor
         private bool hiddenByUser;
         private bool popupDragging;
         private bool popupDragMoved;
+        private bool popupResizing;
         private bool manualPopupLocation;
         private bool previousPopupPinned;
         private string previousPositionMode;
@@ -569,6 +570,8 @@ namespace TaskbarMonitor
         private Size visualRegionSize = Size.Empty;
         private Point popupDragStartCursor;
         private Point popupDragStartLocation;
+        private Point popupResizeStartCursor;
+        private Rectangle popupResizeStartBounds;
 
         public WidgetForm(AppHost owner)
         {
@@ -584,6 +587,22 @@ namespace TaskbarMonitor
             bar.MouseDown += BarMouseDown;
             bar.MouseMove += BarMouseMove;
             bar.MouseUp += BarMouseUp;
+            bar.MouseLeave += delegate
+            {
+                if (!popupDragging && !popupResizing)
+                    bar.Cursor = AcceptsWidgetInput() ? Cursors.Hand : Cursors.Default;
+            };
+            bar.MouseCaptureChanged += delegate
+            {
+                if (bar.Capture) return;
+                if (popupResizing)
+                {
+                    popupResizing = false;
+                    host.SavePopupSize(Size);
+                    ApplyRoundedRegion();
+                }
+                popupDragging = false;
+            };
             bar.MouseDoubleClick += BarMouseDoubleClick;
             bar.HandleCreated += delegate { NativeMethods.SetClickThrough(bar.Handle, !AcceptsWidgetInput()); };
             Controls.Add(bar);
@@ -648,7 +667,18 @@ namespace TaskbarMonitor
 
         private void BarMouseDown(object sender, MouseEventArgs e)
         {
-            if (!AcceptsWidgetInput() || e.Button != MouseButtons.Left || !IsPopupMode() || host.Settings.PopupPinned || bar.IsNavigationPoint(e.Location)) return;
+            if (!AcceptsWidgetInput() || e.Button != MouseButtons.Left || !IsPopupMode() || host.Settings.PopupPinned) return;
+            if (IsResizeGripPoint(e.Location))
+            {
+                popupDragging = false;
+                popupResizing = true;
+                popupResizeStartCursor = Cursor.Position;
+                popupResizeStartBounds = Bounds;
+                bar.Cursor = Cursors.SizeNWSE;
+                bar.Capture = true;
+                return;
+            }
+            if (bar.IsNavigationPoint(e.Location)) return;
             popupDragging = true;
             popupDragMoved = false;
             popupDragStartCursor = Cursor.Position;
@@ -658,7 +688,22 @@ namespace TaskbarMonitor
 
         private void BarMouseMove(object sender, MouseEventArgs e)
         {
-            if (!AcceptsWidgetInput() || !popupDragging) return;
+            if (!AcceptsWidgetInput()) return;
+            if (popupResizing)
+            {
+                Point resizeCursor = Cursor.Position;
+                Rectangle workingArea = Screen.FromRectangle(popupResizeStartBounds).WorkingArea;
+                Size resized = CalculatePopupResizeSize(popupResizeStartBounds,
+                    resizeCursor.X - popupResizeStartCursor.X, resizeCursor.Y - popupResizeStartCursor.Y, workingArea);
+                if (Size != resized)
+                {
+                    Size = resized;
+                    ApplyRoundedRegion();
+                }
+                return;
+            }
+            bar.Cursor = IsResizeGripPoint(e.Location) ? Cursors.SizeNWSE : Cursors.Hand;
+            if (!popupDragging) return;
             Point cursor = Cursor.Position;
             int deltaX = cursor.X - popupDragStartCursor.X;
             int deltaY = cursor.Y - popupDragStartCursor.Y;
@@ -674,7 +719,17 @@ namespace TaskbarMonitor
             if (!AcceptsWidgetInput())
             {
                 popupDragging = false;
+                popupResizing = false;
                 bar.Capture = false;
+                return;
+            }
+            if (e.Button == MouseButtons.Left && popupResizing)
+            {
+                popupResizing = false;
+                bar.Capture = false;
+                host.SavePopupSize(Size);
+                ApplyRoundedRegion();
+                bar.Cursor = IsResizeGripPoint(e.Location) ? Cursors.SizeNWSE : Cursors.Hand;
                 return;
             }
             if (e.Button == MouseButtons.Left && popupDragging)
@@ -773,7 +828,7 @@ namespace TaskbarMonitor
                 DetachFromTaskbar();
                 if (popupMode)
                 {
-                    if (popupDragging) return;
+                    if (popupDragging || popupResizing) return;
                     width = Math.Max(200, Math.Min(1200, settings.PopupWidth));
                     height = Math.Max(48, Math.Min(400, settings.PopupHeight));
                     Rectangle desired;
@@ -921,6 +976,21 @@ namespace TaskbarMonitor
         private bool IsResizablePopup()
         {
             return IsPopupMode() && host.Settings.WidgetInteractionEnabled && !host.Settings.PopupPinned;
+        }
+
+        private bool IsResizeGripPoint(Point location)
+        {
+            return IsResizablePopup() && location.X >= Math.Max(0, bar.ClientSize.Width - PopupResizeGripHitSize) &&
+                location.Y >= Math.Max(0, bar.ClientSize.Height - PopupResizeGripHitSize);
+        }
+
+        internal static Size CalculatePopupResizeSize(Rectangle startBounds, int deltaX, int deltaY, Rectangle workingArea)
+        {
+            int maximumWidth = Math.Min(1200, Math.Max(200, workingArea.Right - startBounds.Left));
+            int maximumHeight = Math.Min(400, Math.Max(48, workingArea.Bottom - startBounds.Top));
+            int width = Math.Max(200, Math.Min(maximumWidth, startBounds.Width + deltaX));
+            int height = Math.Max(48, Math.Min(maximumHeight, startBounds.Height + deltaY));
+            return new Size(width, height);
         }
 
         private static Rectangle ClampPopupBounds(Rectangle desired)
