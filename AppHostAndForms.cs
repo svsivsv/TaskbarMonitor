@@ -706,14 +706,17 @@ namespace TaskbarMonitor
             }
             else if (previousPopupPinned && !settings.PopupPinned)
                 manualPopupLocation = true;
-            bar.SetIntegratedStyle(insideMode, IntegratedBackgroundKey);
+            bool seamlessRequested = insideMode && String.Equals(settings.InsideStyle, "Seamless", StringComparison.OrdinalIgnoreCase);
+            bar.SetIntegratedStyle(insideMode, IntegratedBackgroundKey, seamlessRequested);
             bar.Configure(settings, snapshot, history);
             PositionWidget();
             if (layerChanged) ApplyFloatingWindowOrder(false);
             previousPopupPinned = settings.PopupPinned;
             previousPositionMode = settings.PositionMode;
             previousFloatingOrder = settings.FloatingZOrder;
-            bool seamless = insideMode && embedded && String.Equals(settings.InsideStyle, "Seamless", StringComparison.OrdinalIgnoreCase);
+            bool seamless = seamlessRequested && embedded;
+            if (seamless != seamlessRequested)
+                bar.SetIntegratedStyle(insideMode, IntegratedBackgroundKey, seamless);
             ApplyVisualStyle(seamless, settings.OpacityPercent);
             UpdateClickThrough();
         }
@@ -727,7 +730,7 @@ namespace TaskbarMonitor
                 if (modeChanged || visualOpacityPercent != 100)
                 {
                     BackColor = IntegratedBackgroundKey;
-                    TransparencyKey = Color.Empty;
+                    TransparencyKey = IntegratedBackgroundKey;
                     Opacity = 1.0;
                     Region previous = Region;
                     Region = null;

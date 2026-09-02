@@ -177,7 +177,7 @@ namespace TaskbarMonitor
             hiddenMeasurementInput.Width = 145;
             startupInput = NewCheckBox("Windows 시작 시 자동 실행", working.StartWithWindows);
             showSettingsInput = NewCheckBox("직접 실행 시 설정 먼저 표시", working.ShowSettingsOnManualLaunch);
-            seamlessInput = NewCheckBox("작업 표시줄 무배경 결합", working.InsideStyle == "Seamless");
+            seamlessInput = NewCheckBox("작업표시줄 배경 투명", working.InsideStyle == "Seamless");
             widgetInteractionInput = NewCheckBox("위젯 전체 영역 클릭 인식", working.WidgetInteractionEnabled);
             overflowPagingInput = NewCheckBox("공간 초과 시 좌우 페이지", working.OverflowPaging);
             popupPinnedInput = NewCheckBox("현재 팝업 위치 고정", working.PopupPinned);
@@ -381,7 +381,7 @@ namespace TaskbarMonitor
             helpTip.SetToolTip(hiddenMeasurementInput, "위젯과 설정창이 모두 숨겨졌을 때의 측정 방식입니다. 완전히 중지는 측정과 그래프 기록을 멈추고, 5초 간격 절전은 5초마다 기록하며, 계속 측정은 설정한 갱신 간격을 유지합니다.");
             helpTip.SetToolTip(startupInput, "Windows 로그인 후 저장된 설정으로 위젯을 자동 실행합니다.");
             helpTip.SetToolTip(showSettingsInput, "EXE를 직접 실행했을 때 위젯보다 설정창을 먼저 엽니다. Windows 자동 시작에는 적용되지 않습니다.");
-            helpTip.SetToolTip(seamlessInput, "패널 배경과 테두리를 투명 처리해 작업표시줄 글자·그래프만 보이게 합니다.");
+            helpTip.SetToolTip(seamlessInput, "작업표시줄 안쪽 모드에서만 적용됩니다. 켜면 위젯 배경을 투명하게 해 글자와 그래프만 보이고, 끄면 패널 배경·테두리·항목 구분선을 표시합니다.");
             helpTip.SetToolTip(widgetInteractionInput, "켜면 위젯 전체에서 클릭·우클릭·더블클릭과 팝업 이동을 사용할 수 있습니다. 끄면 작업 관리자 실행을 포함한 모든 위젯 입력이 차단되고 뒤 창으로 통과합니다. 다시 켤 때는 트레이 아이콘의 우클릭 메뉴를 사용하세요.");
             helpTip.SetToolTip(overflowPagingInput, "항목이 표시 공간보다 많을 때 폭을 계속 줄이지 않고 좌우 화살표로 페이지를 전환합니다. 페이지별 항목 수도 최대한 균등하게 나눕니다.");
             helpTip.SetToolTip(popupPinnedInput, "팝업을 원하는 곳으로 옮기고 크기를 맞춘 뒤 켜세요. 현재 좌표를 저장하며 이동과 크기 조절을 잠급니다. 끄면 다시 조절할 수 있습니다.");
@@ -455,6 +455,7 @@ namespace TaskbarMonitor
             floatingOrderInput.SelectedIndexChanged += delegate { RefreshPreview(); };
             hiddenMeasurementInput.SelectedIndexChanged += delegate { RefreshPreview(); };
             autoFitInput.CheckedChanged += delegate { RefreshPreview(); };
+            seamlessInput.CheckedChanged += delegate { RefreshPreview(); };
             widgetInteractionInput.CheckedChanged += delegate { RefreshPreview(); };
             overflowPagingInput.CheckedChanged += delegate { RefreshPreview(); };
             popupPinnedInput.CheckedChanged += delegate { RefreshPreview(); };
@@ -545,7 +546,8 @@ namespace TaskbarMonitor
             {
                 ReadControlsToWorking();
                 bool inside = working.PositionMode == "Inside";
-                preview.SetIntegratedStyle(inside, Color.FromArgb(31, 31, 31));
+                bool seamless = inside && String.Equals(working.InsideStyle, "Seamless", StringComparison.OrdinalIgnoreCase);
+                preview.SetIntegratedStyle(inside, Color.FromArgb(31, 31, 31), seamless);
                 preview.Configure(working, lastSnapshot, lastHistory);
                 preview.Width = Math.Min(preview.Parent.ClientSize.Width - 20, preview.GetPreferredWidth());
                 preview.Height = inside ? working.InsideHeight : 48;
@@ -563,7 +565,8 @@ namespace TaskbarMonitor
             // form. Control-triggered RefreshPreview calls still apply instantly.
             if (dropDownOpen || ContainsFocus || metricGrid.IsCurrentCellInEditMode) return;
             bool inside = working.PositionMode == "Inside";
-            preview.SetIntegratedStyle(inside, Color.FromArgb(31, 31, 31));
+            bool seamless = inside && String.Equals(working.InsideStyle, "Seamless", StringComparison.OrdinalIgnoreCase);
+            preview.SetIntegratedStyle(inside, Color.FromArgb(31, 31, 31), seamless);
             preview.Configure(working, snapshot, history);
             preview.Width = Math.Min(preview.Parent.ClientSize.Width - 20, preview.GetPreferredWidth());
             preview.Height = inside ? working.InsideHeight : 48;

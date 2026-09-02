@@ -113,6 +113,12 @@ namespace TaskbarMonitor
                     AppHost.ShouldSampleMetrics(true, "Continue", samplingNow, samplingNow);
                 report["hiddenSamplingModes"] = new string[] { "Stop", "Throttle", "Continue" };
                 report["hiddenSamplingPolicyPassed"] = hiddenSamplingPolicyPassed;
+                int seamlessPixel;
+                int panelPixel;
+                bool insideStyleRenderingPassed = ValidateInsideStyleRendering(out seamlessPixel, out panelPixel);
+                report["insideSeamlessCornerArgb"] = seamlessPixel;
+                report["insidePanelCornerArgb"] = panelPixel;
+                report["insideStyleRenderingPassed"] = insideStyleRenderingPassed;
                 bool widgetInputPolicyPassed = WidgetForm.ShouldAcceptWidgetInput(true, false) &&
                     !WidgetForm.ShouldAcceptWidgetInput(false, false) &&
                     !WidgetForm.ShouldAcceptWidgetInput(true, true) &&
@@ -283,7 +289,8 @@ namespace TaskbarMonitor
                         snapshot.CpuPercent <= 100.0 && desktopExcluded && memoryFormatSupported &&
                         snapshot.DiskPercents != null && snapshot.DiskPercents.Count == settings.SelectedDisks.Count &&
                         multiDiskDisplayCount == expectedMultiDiskDisplayCount && pagingPassed && embeddedDockingPassed &&
-                        defaultResetPassed && hiddenSamplingPolicyPassed && widgetInputPolicyPassed && contextMenuAutoDismissConfigured &&
+                        defaultResetPassed && hiddenSamplingPolicyPassed && insideStyleRenderingPassed &&
+                        widgetInputPolicyPassed && contextMenuAutoDismissConfigured &&
                         clickThroughNativeStatePassed && runtimeInteractionMatchesSettings && disabledDoubleClickSuppressed &&
                         String.Equals(settings.FloatingZOrder, "Normal", StringComparison.OrdinalIgnoreCase) &&
                         settings.PopupShowOnStartup && windowChecksPassed;
@@ -329,6 +336,33 @@ namespace TaskbarMonitor
                     firstIndices.SequenceEqual(new int[] { 0, 2, 3 }) &&
                     visibleCounts.All(delegate(int count) { return count == 2; });
             }
+        }
+
+        private static bool ValidateInsideStyleRendering(out int seamlessPixel, out int panelPixel)
+        {
+            AppSettings settings = AppSettings.CreateDefault();
+            foreach (MetricOption option in settings.Metrics) option.Enabled = false;
+            MetricSnapshot snapshot = new MetricSnapshot();
+            MetricHistory history = new MetricHistory();
+            history.Configure(60, 1000);
+            using (MetricBarControl bar = new MetricBarControl())
+            {
+                bar.Size = new Size(240, 28);
+                bar.Configure(settings, snapshot, history);
+                bar.SetIntegratedStyle(true, Color.FromArgb(31, 31, 31), true);
+                using (Bitmap seamless = new Bitmap(bar.Width, bar.Height))
+                {
+                    bar.DrawToBitmap(seamless, new Rectangle(Point.Empty, seamless.Size));
+                    seamlessPixel = seamless.GetPixel(0, 0).ToArgb();
+                }
+                bar.SetIntegratedStyle(true, Color.FromArgb(31, 31, 31), false);
+                using (Bitmap panel = new Bitmap(bar.Width, bar.Height))
+                {
+                    bar.DrawToBitmap(panel, new Rectangle(Point.Empty, panel.Size));
+                    panelPixel = panel.GetPixel(0, 0).ToArgb();
+                }
+            }
+            return seamlessPixel == Color.FromArgb(31, 31, 31).ToArgb() && seamlessPixel != panelPixel;
         }
 
         private static void RenderPreview(string directory)

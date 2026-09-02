@@ -99,6 +99,7 @@ namespace TaskbarMonitor
         private MetricSnapshot snapshot;
         private MetricHistory history;
         private bool integratedStyle;
+        private bool integratedSeamless;
         private Color integratedBackColor;
         private Rectangle previousPageBounds;
         private Rectangle nextPageBounds;
@@ -140,7 +141,13 @@ namespace TaskbarMonitor
 
         public void SetIntegratedStyle(bool enabled, Color backgroundKey)
         {
+            SetIntegratedStyle(enabled, backgroundKey, enabled);
+        }
+
+        public void SetIntegratedStyle(bool enabled, Color backgroundKey, bool seamless)
+        {
             integratedStyle = enabled;
+            integratedSeamless = enabled && seamless;
             integratedBackColor = backgroundKey;
             Invalidate();
         }
@@ -149,11 +156,12 @@ namespace TaskbarMonitor
         {
             base.OnPaint(e);
             Graphics graphics = e.Graphics;
-            Color background = integratedStyle ? integratedBackColor : Color.FromArgb(settings.BackgroundArgb);
+            bool seamlessVisual = integratedStyle && integratedSeamless;
+            Color background = seamlessVisual ? integratedBackColor : Color.FromArgb(settings.BackgroundArgb);
             Color foreground = Color.FromArgb(settings.ForegroundArgb);
             Color border = Color.FromArgb(settings.BorderArgb);
             using (Brush brush = new SolidBrush(background)) graphics.FillRectangle(brush, ClientRectangle);
-            if (!integratedStyle)
+            if (!seamlessVisual)
                 using (Pen pen = new Pen(border)) graphics.DrawRectangle(pen, 0, 0, Math.Max(0, Width - 1), Math.Max(0, Height - 1));
 
             List<DisplayMetricItem> metrics = DisplayMetricBuilder.Build(settings);
@@ -266,7 +274,8 @@ namespace TaskbarMonitor
         private void DrawMetric(Graphics graphics, Rectangle bounds, DisplayMetricItem item, Font labelFont, Font valueFont, Color foreground, Color border)
         {
             MetricOption option = item.Option;
-            if (bounds.Left > 1 && !integratedStyle)
+            bool seamlessVisual = integratedStyle && integratedSeamless;
+            if (bounds.Left > 1 && !seamlessVisual)
             {
                 using (Pen separator = new Pen(Color.FromArgb(55, foreground)))
                     graphics.DrawLine(separator, bounds.Left, bounds.Top + 4, bounds.Left, bounds.Bottom - 4);
@@ -297,7 +306,7 @@ namespace TaskbarMonitor
                 Rectangle graphRect = new Rectangle(inner.Left, inner.Top + textHeight + 1, inner.Width, Math.Max(2, inner.Height - textHeight - 2));
                 IList<double> values = String.IsNullOrEmpty(item.DiskName) ? history.GetValues(option.Kind) : history.GetDiskValues(item.DiskName);
                 GraphRenderer.Draw(graphics, graphRect, values, option,
-                    integratedStyle ? Color.Transparent : Color.FromArgb(28, foreground));
+                    seamlessVisual ? Color.Transparent : Color.FromArgb(28, foreground));
             }
             else if (!option.ShowValue && compact)
             {
