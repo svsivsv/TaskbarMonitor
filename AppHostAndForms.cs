@@ -416,6 +416,7 @@ namespace TaskbarMonitor
         {
             if (form == null || form.IsDisposed) return;
             form.TopMost = false;
+            NativeMethods.ShowWindow(form.Handle, NativeMethods.SW_RESTORE);
             // A context menu is a no-activate tool window, so Windows can reject a
             // plain foreground request and leave the settings form behind another
             // application. Pulse the form through TOPMOST once, immediately return
