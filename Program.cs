@@ -119,13 +119,41 @@ namespace TaskbarMonitor
                     bool desktopExcluded = !NativeMethods.IsWindowFullscreen(desktopWindow);
                     report["desktopExcludedFromFullscreen"] = desktopExcluded;
                     IntPtr taskbarWindow = NativeMethods.GetPrimaryTaskbarHandle();
-                    IntPtr embeddedWidget = taskbarWindow == IntPtr.Zero ? IntPtr.Zero :
-                        NativeMethods.FindWindowEx(taskbarWindow, IntPtr.Zero, null, "Taskbar Monitor");
+                    IntPtr widgetWindow = NativeMethods.FindWindow(null, "Taskbar Monitor");
+                    IntPtr embeddedWidget = widgetWindow != IntPtr.Zero &&
+                        NativeMethods.GetParent(widgetWindow) == taskbarWindow ? widgetWindow : IntPtr.Zero;
+                    NativeMethods.RECT taskbarRect;
+                    if (taskbarWindow != IntPtr.Zero && NativeMethods.GetWindowRect(taskbarWindow, out taskbarRect))
+                    {
+                        Rectangle taskbarBounds = taskbarRect.ToRectangle();
+                        report["taskbarBounds"] = taskbarBounds.X + "," + taskbarBounds.Y + "," +
+                            taskbarBounds.Width + "," + taskbarBounds.Height;
+                        TaskbarFreeSlot slot = TaskbarLayoutProbe.GetFreeSlot(taskbarWindow, taskbarBounds, settings.TaskbarOffset);
+                        report["taskbarFreeSlot"] = slot.Left + "," + slot.Right;
+                    }
                     report["embeddedWidgetFound"] = embeddedWidget != IntPtr.Zero;
                     report["embeddedWidgetVisible"] = embeddedWidget != IntPtr.Zero && NativeMethods.IsWindowVisible(embeddedWidget);
                     report["embeddedWidgetTopChild"] = embeddedWidget != IntPtr.Zero &&
-                        NativeMethods.GetTopWindow(taskbarWindow) == embeddedWidget;
-                    IntPtr floatingWidget = NativeMethods.FindWindow(null, "Taskbar Monitor");
+                        (NativeMethods.GetWindowLong(embeddedWidget, NativeMethods.GWL_EXSTYLE) & NativeMethods.WS_EX_TOPMOST) != 0;
+                    bool embeddedDockingPassed = embeddedWidget == IntPtr.Zero;
+                    NativeMethods.RECT embeddedRect;
+                    if (embeddedWidget != IntPtr.Zero && NativeMethods.GetWindowRect(embeddedWidget, out embeddedRect))
+                    {
+                        Rectangle embeddedBounds = embeddedRect.ToRectangle();
+                        NativeMethods.RECT ownerRect;
+                        bool parentMatches = NativeMethods.GetParent(embeddedWidget) == taskbarWindow;
+                        bool contained = NativeMethods.GetWindowRect(taskbarWindow, out ownerRect) &&
+                            ownerRect.ToRectangle().Contains(embeddedBounds);
+                        report["embeddedWidgetBounds"] = embeddedBounds.X + "," + embeddedBounds.Y + "," +
+                            embeddedBounds.Width + "," + embeddedBounds.Height;
+                        report["embeddedWidgetParentMatchesTaskbar"] = parentMatches;
+                        report["embeddedWidgetContainedInTaskbar"] = contained;
+                        report["embeddedWidgetStyle"] = NativeMethods.GetWindowLong(embeddedWidget, NativeMethods.GWL_STYLE);
+                        embeddedDockingPassed = parentMatches && contained && NativeMethods.IsWindowVisible(embeddedWidget) &&
+                            (NativeMethods.GetWindowLong(embeddedWidget, NativeMethods.GWL_EXSTYLE) & NativeMethods.WS_EX_TOPMOST) != 0;
+                    }
+                    report["embeddedDockingPassed"] = embeddedDockingPassed;
+                    IntPtr floatingWidget = embeddedWidget == IntPtr.Zero ? widgetWindow : IntPtr.Zero;
                     report["floatingWidgetFound"] = floatingWidget != IntPtr.Zero;
                     report["floatingWidgetVisible"] = floatingWidget != IntPtr.Zero && NativeMethods.IsWindowVisible(floatingWidget);
                     report["floatingWidgetTopMost"] = floatingWidget != IntPtr.Zero &&
@@ -192,7 +220,7 @@ namespace TaskbarMonitor
                     report["success"] = snapshot.MemoryTotalGb > 0.0 && snapshot.CpuPercent >= 0.0 &&
                         snapshot.CpuPercent <= 100.0 && desktopExcluded && memoryFormatSupported &&
                         snapshot.DiskPercents != null && snapshot.DiskPercents.Count == settings.SelectedDisks.Count &&
-                        multiDiskDisplayCount == expectedMultiDiskDisplayCount && pagingPassed &&
+                        multiDiskDisplayCount == expectedMultiDiskDisplayCount && pagingPassed && embeddedDockingPassed &&
                         String.Equals(settings.FloatingZOrder, "Normal", StringComparison.OrdinalIgnoreCase) &&
                         settings.PopupShowOnStartup && windowChecksPassed;
                 }

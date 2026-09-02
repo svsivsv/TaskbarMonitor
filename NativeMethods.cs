@@ -11,6 +11,7 @@ namespace TaskbarMonitor
     {
         public const int GWL_EXSTYLE = -20;
         public const int GWL_STYLE = -16;
+        public const int GWL_HWNDPARENT = -8;
         public const int WS_EX_TRANSPARENT = 0x00000020;
         public const int WS_EX_TOPMOST = 0x00000008;
         public const int WS_EX_TOOLWINDOW = 0x00000080;
@@ -149,6 +150,12 @@ namespace TaskbarMonitor
         [DllImport("user32.dll")]
         public static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
 
+        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+        private static extern IntPtr SetWindowLongPtr64(IntPtr hwnd, int index, IntPtr newValue);
+
+        [DllImport("user32.dll", EntryPoint = "SetWindowLongW", SetLastError = true)]
+        private static extern int SetWindowLongPtr32(IntPtr hwnd, int index, int newValue);
+
         [DllImport("user32.dll")]
         private static extern bool SetProcessDpiAwarenessContext(IntPtr value);
 
@@ -187,6 +194,13 @@ namespace TaskbarMonitor
         public static IntPtr GetPrimaryTaskbarHandle()
         {
             return FindWindow("Shell_TrayWnd", null);
+        }
+
+        public static IntPtr SetWindowOwner(IntPtr hwnd, IntPtr owner)
+        {
+            return IntPtr.Size == 8
+                ? SetWindowLongPtr64(hwnd, GWL_HWNDPARENT, owner)
+                : new IntPtr(SetWindowLongPtr32(hwnd, GWL_HWNDPARENT, owner.ToInt32()));
         }
 
         public static bool IsForegroundFullscreen(params IntPtr[] ignoredWindows)

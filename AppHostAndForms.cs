@@ -468,7 +468,6 @@ namespace TaskbarMonitor
         private bool previousPopupPinned;
         private string previousPositionMode;
         private string previousFloatingOrder;
-        private DateTime lastEmbeddedStackRefresh;
         private Point popupDragStartCursor;
         private Point popupDragStartLocation;
 
@@ -654,7 +653,7 @@ namespace TaskbarMonitor
                     y = taskbar.Top - height - 4;
                     if (x + width > screen.Right - 8) x = Math.Max(screen.Left + 8, screen.Right - width - 8);
                 }
-                SetPositionIfNeeded(x, y, Math.Max(160, width), Math.Max(28, height), false);
+                SetPositionIfNeeded(x, y, Math.Max(160, width), Math.Max(28, height));
             }
             else
             {
@@ -667,34 +666,20 @@ namespace TaskbarMonitor
                 if (settings.AutoFit && available >= 160) width = Math.Min(width, available);
                 width = Math.Min(width, Math.Max(160, taskbar.Width - x - 220));
                 y = Math.Max(2, (taskbar.Height - height) / 2);
-                if (embedded)
-                {
-                    SetPositionIfNeeded(x, y, Math.Max(160, width), Math.Max(28, height), true);
-                }
-                else
-                {
-                    int screenX = taskbar.Left + x;
-                    int screenY = taskbar.Top + y;
-                    SetPositionIfNeeded(screenX, screenY, Math.Max(160, width), Math.Max(28, height), false);
-                }
+                int screenX = taskbar.Left + x;
+                int screenY = taskbar.Top + y;
+                SetPositionIfNeeded(screenX, screenY, Math.Max(160, width), Math.Max(28, height));
             }
         }
 
-        private void SetPositionIfNeeded(int x, int y, int width, int height, bool keepAboveTaskbarChildren)
+        private void SetPositionIfNeeded(int x, int y, int width, int height)
         {
             Rectangle desired = new Rectangle(x, y, width, height);
             bool boundsChanged = Bounds != desired;
-            bool menuOrSettingsOpen = host.SharedContextMenu.Visible || settingsOpen;
-            bool refreshEmbeddedStack = keepAboveTaskbarChildren && !menuOrSettingsOpen &&
-                (DateTime.UtcNow - lastEmbeddedStackRefresh).TotalSeconds >= 10.0;
-            if (!boundsChanged && !refreshEmbeddedStack) return;
+            if (!boundsChanged) return;
 
-            uint flags = NativeMethods.SWP_NOACTIVATE;
-            if (!boundsChanged) flags |= NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE;
-            if (!keepAboveTaskbarChildren || menuOrSettingsOpen) flags |= NativeMethods.SWP_NOZORDER;
+            uint flags = NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_NOZORDER;
             NativeMethods.SetWindowPos(Handle, NativeMethods.HWND_TOP, x, y, width, height, flags);
-            if (keepAboveTaskbarChildren && !menuOrSettingsOpen)
-                lastEmbeddedStackRefresh = DateTime.UtcNow;
         }
 
         public void UpdateFullscreenState(bool fullscreen, bool monitoring)
@@ -806,16 +791,17 @@ namespace TaskbarMonitor
             if (embedded && taskbarParent == taskbarHandle && NativeMethods.GetParent(Handle) == taskbarHandle) return;
 
             TopMost = false;
-            NativeMethods.SetParent(Handle, taskbarHandle);
             int style = NativeMethods.GetWindowLong(Handle, NativeMethods.GWL_STYLE);
-            style |= NativeMethods.WS_CHILD;
-            style &= ~NativeMethods.WS_POPUP;
+            style &= ~NativeMethods.WS_CHILD;
+            style |= NativeMethods.WS_POPUP;
             NativeMethods.SetWindowLong(Handle, NativeMethods.GWL_STYLE, style);
+            NativeMethods.SetWindowOwner(Handle, taskbarHandle);
             embedded = NativeMethods.GetParent(Handle) == taskbarHandle;
             taskbarParent = embedded ? taskbarHandle : IntPtr.Zero;
             if (embedded)
-                NativeMethods.SetWindowPos(Handle, NativeMethods.HWND_TOP, 0, 0, 0, 0,
-                    NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE);
+                NativeMethods.SetWindowPos(Handle, NativeMethods.HWND_TOPMOST, 0, 0, 0, 0,
+                    NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE |
+                    NativeMethods.SWP_FRAMECHANGED);
         }
 
         private void DetachFromTaskbar()
@@ -825,7 +811,7 @@ namespace TaskbarMonitor
                 TopMost = false;
                 return;
             }
-            NativeMethods.SetParent(Handle, IntPtr.Zero);
+            NativeMethods.SetWindowOwner(Handle, IntPtr.Zero);
             int style = NativeMethods.GetWindowLong(Handle, NativeMethods.GWL_STYLE);
             style &= ~NativeMethods.WS_CHILD;
             style |= NativeMethods.WS_POPUP;
@@ -840,9 +826,7 @@ namespace TaskbarMonitor
 
         public Rectangle GetScreenBounds()
         {
-            if (!embedded) return Bounds;
-            Point screenPoint = PointToScreen(Point.Empty);
-            return new Rectangle(screenPoint, Size);
+            return Bounds;
         }
 
         private void ApplyRoundedRegion()
