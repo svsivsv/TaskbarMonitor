@@ -104,6 +104,12 @@ namespace TaskbarMonitor
         private Rectangle nextPageBounds;
         private int pageIndex;
         private int pageCount;
+        private int firstVisibleIndex;
+        private int visibleItemCount;
+
+        internal int DiagnosticPageCount { get { return pageCount; } }
+        internal int DiagnosticFirstVisibleIndex { get { return firstVisibleIndex; } }
+        internal int DiagnosticVisibleItemCount { get { return visibleItemCount; } }
 
         public MetricBarControl()
         {
@@ -129,7 +135,7 @@ namespace TaskbarMonitor
         {
             int count = DisplayMetricBuilder.Build(settings).Count;
             if (integratedStyle) return Math.Max(120, Math.Min(settings.MaxWidth, 4 + count * settings.InsideItemWidth));
-            return Math.Max(160, Math.Min(settings.MaxWidth, 22 + count * 104));
+            return Math.Max(160, Math.Min(settings.MaxWidth, 22 + count * 96));
         }
 
         public void SetIntegratedStyle(bool enabled, Color backgroundKey)
@@ -153,23 +159,30 @@ namespace TaskbarMonitor
             List<DisplayMetricItem> metrics = DisplayMetricBuilder.Build(settings);
             if (metrics.Count == 0)
             {
+                pageCount = 1;
+                pageIndex = 0;
+                firstVisibleIndex = 0;
+                visibleItemCount = 0;
                 TextRenderer.DrawText(graphics, "표시할 항목을 선택하세요", Font, ClientRectangle, foreground,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
                 return;
             }
 
             int usableWidth = Math.Max(1, Width - 2);
-            int targetWidth = integratedStyle ? settings.InsideItemWidth : 104;
+            int targetWidth = integratedStyle ? settings.InsideItemWidth : 96;
             bool overflow = settings.OverflowPaging && metrics.Count * targetWidth > usableWidth;
-            int navigationWidth = overflow ? (integratedStyle ? 24 : 30) : 0;
+            int navigationWidth = overflow ? (integratedStyle ? 30 : 36) : 0;
             int contentWidth = Math.Max(1, usableWidth - navigationWidth * 2);
             int pageCapacity = overflow ? Math.Max(1, contentWidth / Math.Max(48, targetWidth)) : metrics.Count;
             pageCount = overflow ? Math.Max(1, (int)Math.Ceiling(metrics.Count / (double)pageCapacity)) : 1;
-            int itemsPerPage = overflow ? Math.Max(1, (int)Math.Ceiling(metrics.Count / (double)pageCount)) : metrics.Count;
             if (pageIndex >= pageCount) pageIndex = pageCount - 1;
             if (pageIndex < 0) pageIndex = 0;
-            int first = overflow ? pageIndex * itemsPerPage : 0;
-            int shown = Math.Min(itemsPerPage, metrics.Count - first);
+            // Keep every page full when possible. For an uneven final page, slide
+            // the last window back instead of leaving a single GPU/disk by itself.
+            int first = overflow ? Math.Min(pageIndex * pageCapacity, Math.Max(0, metrics.Count - pageCapacity)) : 0;
+            int shown = Math.Min(pageCapacity, metrics.Count - first);
+            firstVisibleIndex = first;
+            visibleItemCount = shown;
             int itemWidth = overflow || settings.AutoFit ? Math.Max(1, contentWidth / Math.Max(1, shown)) : targetWidth;
             previousPageBounds = overflow ? new Rectangle(1, 1, navigationWidth, Math.Max(1, Height - 2)) : Rectangle.Empty;
             nextPageBounds = overflow ? new Rectangle(Width - navigationWidth - 1, 1, navigationWidth, Math.Max(1, Height - 2)) : Rectangle.Empty;
@@ -195,21 +208,23 @@ namespace TaskbarMonitor
 
         private void DrawResizeGrip(Graphics graphics, Color foreground)
         {
-            Rectangle grip = new Rectangle(Math.Max(0, Width - 34), Math.Max(0, Height - 30),
-                Math.Min(33, Width), Math.Min(29, Height));
-            using (Brush background = new SolidBrush(Color.FromArgb(55, foreground)))
-                graphics.FillRectangle(background, grip);
-            using (Pen pen = new Pen(Color.FromArgb(210, foreground), 1.6f))
+            // Keep the visible mark small so it does not cover the final graph.
+            // The actual hit-test area is intentionally larger in WidgetForm.
+            using (Pen pen = new Pen(Color.FromArgb(185, foreground), 1.35f))
             {
-                graphics.DrawLine(pen, Width - 25, Height - 5, Width - 5, Height - 25);
-                graphics.DrawLine(pen, Width - 18, Height - 5, Width - 5, Height - 18);
-                graphics.DrawLine(pen, Width - 11, Height - 5, Width - 5, Height - 11);
+                graphics.DrawLine(pen, Width - 15, Height - 4, Width - 4, Height - 15);
+                graphics.DrawLine(pen, Width - 9, Height - 4, Width - 4, Height - 9);
             }
         }
 
         private void DrawNavigation(Graphics graphics, Color foreground)
         {
             Color arrowColor = Color.FromArgb(210, foreground);
+            using (Brush button = new SolidBrush(Color.FromArgb(34, foreground)))
+            {
+                graphics.FillRectangle(button, previousPageBounds);
+                graphics.FillRectangle(button, nextPageBounds);
+            }
             using (Font navigationFont = new Font("Segoe UI", integratedStyle ? 12.0f : 14.0f, FontStyle.Bold, GraphicsUnit.Point))
             {
                 TextRenderer.DrawText(graphics, "‹", navigationFont, previousPageBounds, arrowColor,
@@ -302,64 +317,4 @@ namespace TaskbarMonitor
         }
     }
 
-    public sealed class DetailGraphControl : Control
-    {
-        private AppSettings settings;
-        private MetricSnapshot snapshot;
-        private MetricHistory history;
-
-        public DetailGraphControl()
-        {
-            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer |
-                     ControlStyles.ResizeRedraw | ControlStyles.UserPaint, true);
-            settings = AppSettings.CreateDefault();
-            snapshot = new MetricSnapshot();
-            history = new MetricHistory();
-        }
-
-        public void Configure(AppSettings newSettings, MetricSnapshot newSnapshot, MetricHistory newHistory)
-        {
-            settings = newSettings ?? AppSettings.CreateDefault();
-            snapshot = newSnapshot ?? new MetricSnapshot();
-            history = newHistory ?? new MetricHistory();
-            int count = Math.Max(1, DisplayMetricBuilder.Build(settings).Count);
-            Height = 24 + count * 94;
-            Invalidate();
-        }
-
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            base.OnPaint(e);
-            Graphics graphics = e.Graphics;
-            Color background = Color.FromArgb(settings.BackgroundArgb);
-            Color foreground = Color.FromArgb(settings.ForegroundArgb);
-            using (Brush brush = new SolidBrush(background)) graphics.FillRectangle(brush, ClientRectangle);
-
-            List<DisplayMetricItem> metrics = DisplayMetricBuilder.Build(settings);
-            using (Font titleFont = new Font("Segoe UI", 10.5f, FontStyle.Bold))
-            using (Font valueFont = new Font("Segoe UI", 9.0f, FontStyle.Regular))
-            {
-                int y = 12;
-                foreach (DisplayMetricItem item in metrics)
-                {
-                    MetricOption option = item.Option;
-                    Rectangle row = new Rectangle(12, y, Math.Max(40, Width - 24), 82);
-                    string itemLabel = item.Label;
-                    string title = String.IsNullOrEmpty(item.DiskName) && String.Equals(option.DisplayName, itemLabel, StringComparison.OrdinalIgnoreCase)
-                        ? itemLabel : option.DisplayName + " · " + itemLabel;
-                    TextRenderer.DrawText(graphics, title, titleFont,
-                        new Rectangle(row.Left, row.Top, row.Width / 2, 20), option.Color,
-                        TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
-                    TextRenderer.DrawText(graphics, snapshot.FormatValue(option, false, item.DiskName), valueFont,
-                        new Rectangle(row.Left + row.Width / 2, row.Top, row.Width / 2, 20), foreground,
-                        TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
-                    Rectangle graph = new Rectangle(row.Left, row.Top + 24, row.Width, 52);
-                    using (Brush graphBack = new SolidBrush(Color.FromArgb(40, foreground))) graphics.FillRectangle(graphBack, graph);
-                    IList<double> values = String.IsNullOrEmpty(item.DiskName) ? history.GetValues(option.Kind) : history.GetDiskValues(item.DiskName);
-                    GraphRenderer.Draw(graphics, graph, values, option, Color.FromArgb(32, foreground));
-                    y += 94;
-                }
-            }
-        }
-    }
 }

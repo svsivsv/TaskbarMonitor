@@ -174,9 +174,25 @@ namespace TaskbarMonitor
                     memoryOption.ValueFormat = "UsedTotalGb";
                     bool memoryFormatSupported = snapshot.FormatValue(memoryOption, true, null).Contains("/");
                     report["memoryFormatSupported"] = memoryFormatSupported;
+                    AppSettings multiDiskSettings = settings.Clone();
+                    multiDiskSettings.SelectedDisks = new List<string> { "C:", "E:" };
+                    int multiDiskDisplayCount = DisplayMetricBuilder.Build(multiDiskSettings).Count;
+                    int expectedMultiDiskDisplayCount = multiDiskSettings.Metrics.Count(delegate(MetricOption option)
+                    {
+                        return option.Enabled && option.Kind != MetricKind.Disk;
+                    }) + 2;
+                    report["multiDiskDisplayCount"] = multiDiskDisplayCount;
+                    report["displayModes"] = new string[] { "Inside", "Above", "Popup" };
+                    List<int> pagingFirstIndices;
+                    List<int> pagingVisibleCounts;
+                    bool pagingPassed = ValidatePaging(snapshot, out pagingFirstIndices, out pagingVisibleCounts);
+                    report["pagingFirstIndices"] = pagingFirstIndices;
+                    report["pagingVisibleCounts"] = pagingVisibleCounts;
+                    report["pagingPassed"] = pagingPassed;
                     report["success"] = snapshot.MemoryTotalGb > 0.0 && snapshot.CpuPercent >= 0.0 &&
                         snapshot.CpuPercent <= 100.0 && desktopExcluded && memoryFormatSupported &&
                         snapshot.DiskPercents != null && snapshot.DiskPercents.Count == settings.SelectedDisks.Count &&
+                        multiDiskDisplayCount == expectedMultiDiskDisplayCount && pagingPassed &&
                         String.Equals(settings.FloatingZOrder, "Normal", StringComparison.OrdinalIgnoreCase) &&
                         settings.PopupShowOnStartup && windowChecksPassed;
                 }
@@ -189,6 +205,38 @@ namespace TaskbarMonitor
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath)));
             File.WriteAllText(outputPath, new JavaScriptSerializer().Serialize(report));
             Environment.ExitCode = Convert.ToBoolean(report["success"]) ? 0 : 1;
+        }
+
+        private static bool ValidatePaging(MetricSnapshot snapshot, out List<int> firstIndices, out List<int> visibleCounts)
+        {
+            firstIndices = new List<int>();
+            visibleCounts = new List<int>();
+            AppSettings settings = AppSettings.CreateDefault();
+            settings.PositionMode = "Popup";
+            settings.MaxWidth = 300;
+            settings.PopupWidth = 300;
+            settings.PopupHeight = 72;
+            settings.OverflowPaging = true;
+            settings.SelectedDisks = new List<string> { "C:" };
+            MetricHistory history = new MetricHistory();
+            history.Configure(60, 1000);
+            history.Add(snapshot);
+            using (MetricBarControl bar = new MetricBarControl())
+            {
+                bar.Size = new Size(300, 72);
+                bar.Configure(settings, snapshot, history);
+                for (int page = 0; page < 3; page++)
+                {
+                    using (Bitmap image = new Bitmap(bar.Width, bar.Height))
+                        bar.DrawToBitmap(image, new Rectangle(Point.Empty, image.Size));
+                    firstIndices.Add(bar.DiagnosticFirstVisibleIndex);
+                    visibleCounts.Add(bar.DiagnosticVisibleItemCount);
+                    if (page < 2 && !bar.TryNavigate(new Point(bar.Width - 5, bar.Height / 2))) return false;
+                }
+                return bar.DiagnosticPageCount == 3 &&
+                    firstIndices.SequenceEqual(new int[] { 0, 2, 3 }) &&
+                    visibleCounts.All(delegate(int count) { return count == 2; });
+            }
         }
 
         private static void RenderPreview(string directory)
@@ -233,6 +281,22 @@ namespace TaskbarMonitor
                     image.Save(Path.Combine(directory, "bar-preview.png"));
                 }
             }
+            using (MetricBarControl popupBar = new MetricBarControl())
+            {
+                AppSettings popupSettings = settings.Clone();
+                popupSettings.PositionMode = "Popup";
+                popupSettings.PopupPinned = false;
+                popupSettings.PopupWidth = 500;
+                popupSettings.PopupHeight = 72;
+                popupSettings.SelectedDisks = new List<string> { "C:" };
+                popupBar.Size = new Size(popupSettings.PopupWidth, popupSettings.PopupHeight);
+                popupBar.Configure(popupSettings, snapshot, history);
+                using (Bitmap image = new Bitmap(popupBar.Width, popupBar.Height))
+                {
+                    popupBar.DrawToBitmap(image, new Rectangle(Point.Empty, image.Size));
+                    image.Save(Path.Combine(directory, "popup-preview.png"));
+                }
+            }
             using (MetricBarControl pagedBar = new MetricBarControl())
             {
                 settings.MaxWidth = 300;
@@ -249,16 +313,6 @@ namespace TaskbarMonitor
                 {
                     pagedBar.DrawToBitmap(image, new Rectangle(Point.Empty, image.Size));
                     image.Save(Path.Combine(directory, "bar-preview-paged-next.png"));
-                }
-            }
-            using (DetailGraphControl detail = new DetailGraphControl())
-            {
-                detail.Width = 560;
-                detail.Configure(settings, snapshot, history);
-                using (Bitmap image = new Bitmap(detail.Width, detail.Height))
-                {
-                    detail.DrawToBitmap(image, new Rectangle(Point.Empty, image.Size));
-                    image.Save(Path.Combine(directory, "detail-preview.png"));
                 }
             }
         }

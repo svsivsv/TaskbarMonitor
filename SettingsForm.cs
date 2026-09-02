@@ -141,7 +141,12 @@ namespace TaskbarMonitor
             opacityInput = NewNumber(25, 100, working.OpacityPercent, 1, 0);
             fontInput = NewNumber(7, 18, (decimal)working.FontSize, 0.5m, 1);
             int positionIndex = working.PositionMode == "Popup" ? 2 : (working.PositionMode == "Above" ? 1 : 0);
-            positionInput = NewCombo(new string[] { "작업 표시줄 안쪽", "작업 표시줄 위", "팝업 창 (트레이 클릭)" }, positionIndex);
+            positionInput = NewCombo(new string[]
+            {
+                "작업 표시줄 안쪽 (결합)",
+                "작업 표시줄 위 (얇은 바)",
+                "독립 팝업 (이동·크기 조절)"
+            }, positionIndex);
             int fullscreenIndex = working.FullscreenMode == "Show" ? 1 : (working.FullscreenMode == "ClickThrough" ? 2 : 0);
             fullscreenInput = NewCombo(new string[] { "전체화면에서 숨기기", "항상 표시", "표시 + 클릭 통과" }, fullscreenIndex);
             int floatingOrderIndex = String.Equals(working.FloatingZOrder, "Top", StringComparison.OrdinalIgnoreCase) ? 1 :
@@ -221,8 +226,8 @@ namespace TaskbarMonitor
             helpText.TextAlign = ContentAlignment.MiddleLeft;
             helpText.Text =
                 "권장값은 갱신 1000ms, 그래프 기록 60초입니다. 갱신 값을 낮추면 더 빠르게 반응하지만 CPU 사용량이 늘 수 있습니다.\r\n" +
-                "팝업 너비·높이는 숫자로 조절하거나 팝업 오른쪽 아래 모서리를 끌어 바로 바꿀 수 있습니다.\r\n" +
-                "떠있는 창은 기본적으로 일반 창 순서입니다. '앱 시작 시 팝업 표시'를 끄면 트레이 클릭 전까지 숨겨 둡니다.";
+                "세 표시 모드는 설정과 우클릭 메뉴에서 언제든 바로 전환할 수 있습니다. 별도 상세 그래프 창은 열지 않습니다.\r\n" +
+                "팝업 크기는 숫자 또는 오른쪽 아래 모서리로 바꿉니다. 위치 고정 중에는 이동·크기 조절이 잠깁니다.";
             helpGroup.Controls.Add(helpText);
             Controls.Add(helpGroup);
 
@@ -352,8 +357,8 @@ namespace TaskbarMonitor
             helpTip.SetToolTip(fullscreenInput, "숨기기: 전체화면에서 감춤 / 항상 표시: 위에 유지 / 클릭 통과: 보이지만 마우스 입력은 전체화면 앱으로 전달합니다.");
             helpTip.SetToolTip(insideItemWidthInput, "작업표시줄 안쪽 모드에서 CPU·RAM 등 항목 하나가 차지할 기준 폭입니다. 폭이 작으면 이름이 짧게 표시됩니다.");
             helpTip.SetToolTip(insideHeightInput, "작업표시줄 안쪽 위젯의 높이입니다. 기본 28px이며 작업표시줄 높이를 넘지 않도록 자동 제한됩니다.");
-            helpTip.SetToolTip(popupWidthInput, "팝업 창 모드의 가로 크기입니다. 200~1200px 범위에서 조절할 수 있습니다.");
-            helpTip.SetToolTip(popupHeightInput, "팝업 창 모드의 세로 크기입니다. 그래프를 크게 보고 싶으면 값을 높이세요.");
+            helpTip.SetToolTip(popupWidthInput, "독립 팝업의 가로 크기입니다. 기본 500px이며 200~1200px 범위에서 조절할 수 있습니다.");
+            helpTip.SetToolTip(popupHeightInput, "독립 팝업의 세로 크기입니다. 기본 72px이며 48~400px 범위에서 조절할 수 있습니다.");
             helpTip.SetToolTip(floatingOrderInput, "일반: 다른 창을 사용하면 자연스럽게 뒤로 감 / 항상 위: 직접 선택한 경우에만 최상단 / 항상 뒤: 다른 일반 창 뒤에 둡니다.");
             helpTip.SetToolTip(autoFitInput, "날씨 버튼과 시작 버튼 사이의 실제 빈 공간에 맞춰 항목 폭을 자동으로 줄입니다.");
             helpTip.SetToolTip(pauseHiddenInput, "위젯이 보이지 않을 때 갱신 주기를 5초로 늦춰 CPU 사용량을 줄입니다.");
@@ -362,7 +367,7 @@ namespace TaskbarMonitor
             helpTip.SetToolTip(seamlessInput, "패널 배경과 테두리를 투명 처리해 작업표시줄 글자·그래프만 보이게 합니다.");
             helpTip.SetToolTip(widgetInteractionInput, "켜면 위젯의 빈 공간까지 클릭·우클릭되고 팝업을 끌어 이동할 수 있습니다. 끄면 위젯 전체가 뒤 창으로 클릭 통과됩니다.");
             helpTip.SetToolTip(overflowPagingInput, "항목이 표시 공간보다 많을 때 폭을 계속 줄이지 않고 좌우 화살표로 페이지를 전환합니다. 페이지별 항목 수도 최대한 균등하게 나눕니다.");
-            helpTip.SetToolTip(popupPinnedInput, "팝업을 원하는 곳으로 먼저 끌어 옮긴 뒤 켜고 적용하세요. 현재 화면 좌표를 저장하고 이동을 잠급니다. 끄면 다시 드래그할 수 있습니다.");
+            helpTip.SetToolTip(popupPinnedInput, "팝업을 원하는 곳으로 옮기고 크기를 맞춘 뒤 켜세요. 현재 좌표를 저장하며 이동과 크기 조절을 잠급니다. 끄면 다시 조절할 수 있습니다.");
             helpTip.SetToolTip(popupShowOnStartupInput, "켜면 EXE 실행 또는 Windows 로그인 때 팝업을 바로 표시합니다. 끄면 트레이 아이콘을 클릭할 때까지 숨겨 둡니다.");
             helpTip.SetToolTip(diskList, "동시에 감시할 드라이브를 여러 개 선택합니다. 각 드라이브의 디스크 사용 시간을 별도 항목과 그래프로 표시합니다.");
         }

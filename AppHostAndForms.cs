@@ -74,13 +74,16 @@ namespace TaskbarMonitor
         private readonly NotifyIcon trayIcon;
         private readonly ContextMenuStrip contextMenu;
         private ToolStripMenuItem interactionMenuItem;
+        private ToolStripMenuItem positionModeMenuItem;
+        private ToolStripMenuItem positionInsideItem;
+        private ToolStripMenuItem positionAboveItem;
+        private ToolStripMenuItem positionPopupItem;
         private ToolStripMenuItem floatingOrderMenuItem;
         private ToolStripMenuItem floatingOrderNormalItem;
         private ToolStripMenuItem floatingOrderTopItem;
         private ToolStripMenuItem floatingOrderBottomItem;
         private readonly MessageSink messageSink;
         private WidgetForm widgetForm;
-        private DetailForm detailForm;
         private SettingsForm settingsForm;
         private bool monitoring;
         private bool paused;
@@ -106,6 +109,7 @@ namespace TaskbarMonitor
             contextMenu = BuildContextMenu();
             contextMenu.Opening += delegate
             {
+                UpdatePositionModeMenu();
                 floatingOrderMenuItem.Enabled = !String.Equals(settings.PositionMode, "Inside", StringComparison.OrdinalIgnoreCase);
                 UpdateFloatingOrderMenu();
             };
@@ -155,15 +159,15 @@ namespace TaskbarMonitor
         {
             ContextMenuStrip menu = new ContextMenuStrip();
             menu.Items.Add("위젯 설정 수정", null, delegate { RequestShowSettings(); });
-            menu.Items.Add("작업 표시줄 안쪽으로 복귀", null, delegate
-            {
-                AppSettings updated = settings.Clone();
-                updated.PositionMode = "Inside";
-                updated.PopupPinned = false;
-                updated.WidgetInteractionEnabled = true;
-                ApplySettings(updated, true);
-            });
-            menu.Items.Add("상세 그래프 열기/닫기", null, delegate { ToggleDetail(); });
+            positionModeMenuItem = new ToolStripMenuItem("표시 모드");
+            positionInsideItem = new ToolStripMenuItem("작업 표시줄 안쪽", null, delegate { SetPositionMode("Inside"); });
+            positionAboveItem = new ToolStripMenuItem("작업 표시줄 위", null, delegate { SetPositionMode("Above"); });
+            positionPopupItem = new ToolStripMenuItem("독립 팝업", null, delegate { SetPositionMode("Popup"); });
+            positionModeMenuItem.DropDownItems.Add(positionInsideItem);
+            positionModeMenuItem.DropDownItems.Add(positionAboveItem);
+            positionModeMenuItem.DropDownItems.Add(positionPopupItem);
+            menu.Items.Add(positionModeMenuItem);
+            UpdatePositionModeMenu();
             menu.Items.Add("위젯 표시/숨기기", null, delegate { ToggleWidget(); });
             floatingOrderMenuItem = new ToolStripMenuItem("떠있는 창 앞뒤 순서");
             floatingOrderNormalItem = new ToolStripMenuItem("일반 창 순서 (권장)", null, delegate { SetFloatingOrder("Normal"); });
@@ -193,6 +197,22 @@ namespace TaskbarMonitor
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("종료", null, delegate { Shutdown(); });
             return menu;
+        }
+
+        private void SetPositionMode(string mode)
+        {
+            AppSettings updated = settings.Clone();
+            updated.PositionMode = mode;
+            ApplySettings(updated, true);
+            UpdatePositionModeMenu();
+        }
+
+        private void UpdatePositionModeMenu()
+        {
+            if (positionInsideItem == null) return;
+            positionInsideItem.Checked = String.Equals(settings.PositionMode, "Inside", StringComparison.OrdinalIgnoreCase);
+            positionAboveItem.Checked = String.Equals(settings.PositionMode, "Above", StringComparison.OrdinalIgnoreCase);
+            positionPopupItem.Checked = String.Equals(settings.PositionMode, "Popup", StringComparison.OrdinalIgnoreCase);
         }
 
         private void SetFloatingOrder(string order)
@@ -242,19 +262,17 @@ namespace TaskbarMonitor
                 else if (widgetForm != null) widgetForm.TogglePopupVisibility();
                 return;
             }
-            if (monitoring) ToggleDetail();
-            else ShowSettings();
+            ToggleWidget();
         }
 
         private void RefreshTick(object sender, EventArgs e)
         {
             bool fullscreen = NativeMethods.IsForegroundFullscreen(
                 widgetForm == null ? IntPtr.Zero : widgetForm.Handle,
-                detailForm == null ? IntPtr.Zero : detailForm.Handle,
+                IntPtr.Zero,
                 settingsForm == null ? IntPtr.Zero : settingsForm.Handle);
             bool captureForeground = NativeMethods.IsCaptureForeground();
             if (captureForeground && settings.CaptureMode == "Show") fullscreen = false;
-            bool shellFlyoutForeground = NativeMethods.IsShellFlyoutForeground();
 
             if (!paused)
             {
@@ -272,12 +290,6 @@ namespace TaskbarMonitor
             {
                 widgetForm.UpdateData(settings, snapshot, history);
                 widgetForm.UpdateFullscreenState(fullscreen, monitoring);
-                widgetForm.UpdateShellFlyoutState(shellFlyoutForeground, monitoring);
-            }
-            if (detailForm != null)
-            {
-                detailForm.UpdateData(settings, snapshot, history);
-                if (fullscreen && settings.FullscreenMode == "Hide") detailForm.Hide();
             }
             if (settingsForm != null && !settingsForm.IsDisposed)
                 settingsForm.UpdatePreview(snapshot, history);
@@ -306,6 +318,7 @@ namespace TaskbarMonitor
             }
             settings = newSettings.Clone();
             if (interactionMenuItem != null) interactionMenuItem.Checked = settings.WidgetInteractionEnabled;
+            UpdatePositionModeMenu();
             UpdateFloatingOrderMenu();
             SettingsStore.Save(settings);
             SettingsStore.ApplyStartupSetting(settings.StartWithWindows);
@@ -320,7 +333,6 @@ namespace TaskbarMonitor
                 settings.PopupY = positionedBounds.Y;
                 SettingsStore.Save(settings);
             }
-            if (detailForm != null) detailForm.UpdateData(settings, snapshot, history);
             if (startMonitor) StartMonitor();
         }
 
@@ -358,26 +370,6 @@ namespace TaskbarMonitor
             }
             monitoring = false;
             if (widgetForm != null && !widgetForm.IsDisposed) widgetForm.Hide();
-            if (detailForm != null && !detailForm.IsDisposed) detailForm.Hide();
-        }
-
-        public void ToggleDetail()
-        {
-            if (!monitoring)
-            {
-                StartMonitor();
-                return;
-            }
-            if (detailForm == null || detailForm.IsDisposed)
-                detailForm = new DetailForm(this);
-            detailForm.UpdateData(settings, snapshot, history);
-            if (detailForm.Visible) detailForm.Hide();
-            else
-            {
-                detailForm.PositionNear(widgetForm);
-                detailForm.Show();
-                detailForm.BringToFront();
-            }
         }
 
         public void ShowSettings()
@@ -450,7 +442,6 @@ namespace TaskbarMonitor
             contextMenu.Dispose();
             messageSink.Dispose();
             if (widgetForm != null) widgetForm.Dispose();
-            if (detailForm != null) detailForm.Dispose();
             if (settingsForm != null) settingsForm.Dispose();
             sampler.Dispose();
             base.ExitThreadCore();
@@ -459,7 +450,7 @@ namespace TaskbarMonitor
 
     public sealed class WidgetForm : Form
     {
-        private const int PopupResizeGripHitSize = 34;
+        private const int PopupResizeGripHitSize = 28;
         private static readonly Color IntegratedBackgroundKey = Color.FromArgb(31, 31, 31);
         private readonly AppHost host;
         private readonly MetricBarControl bar;
@@ -473,7 +464,6 @@ namespace TaskbarMonitor
         private bool hiddenByUser;
         private bool popupDragging;
         private bool popupDragMoved;
-        private bool consumePopupClick;
         private bool manualPopupLocation;
         private bool previousPopupPinned;
         private string previousPositionMode;
@@ -495,7 +485,6 @@ namespace TaskbarMonitor
             bar.Dock = DockStyle.Fill;
             bar.MouseDown += BarMouseDown;
             bar.MouseMove += BarMouseMove;
-            bar.MouseClick += BarMouseClick;
             bar.MouseUp += BarMouseUp;
             bar.MouseDoubleClick += BarMouseDoubleClick;
             Controls.Add(bar);
@@ -543,19 +532,6 @@ namespace TaskbarMonitor
             base.WndProc(ref message);
         }
 
-        private void BarMouseClick(object sender, MouseEventArgs e)
-        {
-            if (e.Button == MouseButtons.Left && e.Clicks == 1)
-            {
-                if (consumePopupClick)
-                {
-                    consumePopupClick = false;
-                    return;
-                }
-                host.ToggleDetail();
-            }
-        }
-
         private void BarMouseDown(object sender, MouseEventArgs e)
         {
             if (e.Button != MouseButtons.Left || !IsPopupMode() || host.Settings.PopupPinned || bar.IsNavigationPoint(e.Location)) return;
@@ -585,7 +561,6 @@ namespace TaskbarMonitor
             {
                 popupDragging = false;
                 bar.Capture = false;
-                if (popupDragMoved) consumePopupClick = true;
                 return;
             }
             if (e.Button == MouseButtons.Right)
@@ -744,12 +719,6 @@ namespace TaskbarMonitor
             }
         }
 
-        public void UpdateShellFlyoutState(bool shellFlyoutForeground, bool monitoring)
-        {
-            // A search/start flyout must not toggle a popup's visibility. Normal
-            // Windows z-order now lets the shell cover it without hide/show flicker.
-        }
-
         private void ApplyAutomaticVisibility(bool monitoring)
         {
             bool shouldShow = monitoring && !hiddenByUser && !hiddenForFullscreen;
@@ -895,61 +864,6 @@ namespace TaskbarMonitor
                 Region = new Region(path);
                 if (old != null) old.Dispose();
             }
-        }
-    }
-
-    public sealed class DetailForm : Form
-    {
-        private readonly AppHost host;
-        private readonly DetailGraphControl graph;
-
-        public DetailForm(AppHost owner)
-        {
-            host = owner;
-            Text = "Taskbar Monitor - 상세 그래프";
-            FormBorderStyle = FormBorderStyle.SizableToolWindow;
-            ShowInTaskbar = false;
-            StartPosition = FormStartPosition.Manual;
-            TopMost = false;
-            MinimumSize = new Size(390, 240);
-            Size = new Size(560, 520);
-            BackColor = Color.FromArgb(28, 28, 28);
-            AutoScroll = true;
-            graph = new DetailGraphControl();
-            graph.Location = Point.Empty;
-            graph.Width = ClientSize.Width;
-            graph.Anchor = AnchorStyles.Left | AnchorStyles.Top | AnchorStyles.Right;
-            Controls.Add(graph);
-            ContextMenuStrip = owner.SharedContextMenu;
-            KeyPreview = true;
-            KeyDown += delegate(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Escape) Hide(); };
-            FormClosing += delegate(object sender, FormClosingEventArgs e)
-            {
-                if (e.CloseReason == CloseReason.UserClosing)
-                {
-                    e.Cancel = true;
-                    Hide();
-                }
-            };
-        }
-
-        public void UpdateData(AppSettings settings, MetricSnapshot snapshot, MetricHistory history)
-        {
-            Opacity = Math.Max(0.35, Math.Min(1.0, settings.OpacityPercent / 100.0));
-            graph.Configure(settings, snapshot, history);
-            graph.Width = Math.Max(100, ClientSize.Width - (VerticalScroll.Visible ? SystemInformation.VerticalScrollBarWidth : 0));
-        }
-
-        public void PositionNear(WidgetForm widget)
-        {
-            Rectangle working = Screen.PrimaryScreen.WorkingArea;
-            Rectangle widgetBounds = widget == null ? Rectangle.Empty : widget.GetScreenBounds();
-            int x = widget == null ? working.Right - Width - 18 : widgetBounds.Left;
-            int y = widget == null ? working.Bottom - Height - 18 : widgetBounds.Top - Height - 6;
-            if (x + Width > working.Right) x = working.Right - Width;
-            if (x < working.Left) x = working.Left;
-            if (y < working.Top) y = working.Top;
-            Location = new Point(x, y);
         }
     }
 

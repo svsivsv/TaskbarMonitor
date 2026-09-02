@@ -116,8 +116,8 @@ namespace TaskbarMonitor
             value.ShowSettingsOnManualLaunch = true;
             value.WidgetInteractionEnabled = true;
             value.OverflowPaging = true;
-            value.PopupWidth = 560;
-            value.PopupHeight = 90;
+            value.PopupWidth = 500;
+            value.PopupHeight = 72;
             value.PopupPinned = false;
             value.PopupShowOnStartup = true;
             value.FloatingZOrder = "Normal";
