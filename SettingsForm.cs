@@ -25,8 +25,8 @@ namespace TaskbarMonitor
         private readonly ComboBox positionInput;
         private readonly ComboBox fullscreenInput;
         private readonly ComboBox floatingOrderInput;
+        private readonly ComboBox hiddenMeasurementInput;
         private readonly CheckBox autoFitInput;
-        private readonly CheckBox pauseHiddenInput;
         private readonly CheckBox startupInput;
         private readonly CheckBox showSettingsInput;
         private readonly CheckBox seamlessInput;
@@ -166,7 +166,15 @@ namespace TaskbarMonitor
             checks.WrapContents = true;
             checks.AutoSize = true;
             autoFitInput = NewCheckBox("공간에 자동 맞춤", working.AutoFit);
-            pauseHiddenInput = NewCheckBox("숨김 중 측정을 5초 간격으로 절전", working.PauseWhenHidden);
+            int hiddenMeasurementIndex = String.Equals(working.HiddenMeasurementMode, "Throttle", StringComparison.OrdinalIgnoreCase) ? 1 :
+                (String.Equals(working.HiddenMeasurementMode, "Continue", StringComparison.OrdinalIgnoreCase) ? 2 : 0);
+            hiddenMeasurementInput = NewCombo(new string[]
+            {
+                "완전히 중지 (권장)",
+                "5초 간격 절전",
+                "계속 측정"
+            }, hiddenMeasurementIndex);
+            hiddenMeasurementInput.Width = 145;
             startupInput = NewCheckBox("Windows 시작 시 자동 실행", working.StartWithWindows);
             showSettingsInput = NewCheckBox("직접 실행 시 설정 먼저 표시", working.ShowSettingsOnManualLaunch);
             seamlessInput = NewCheckBox("작업 표시줄 무배경 결합", working.InsideStyle == "Seamless");
@@ -175,7 +183,12 @@ namespace TaskbarMonitor
             popupPinnedInput = NewCheckBox("현재 팝업 위치 고정", working.PopupPinned);
             popupShowOnStartupInput = NewCheckBox("앱 시작 시 팝업 표시", working.PopupShowOnStartup);
             checks.Controls.Add(autoFitInput);
-            checks.Controls.Add(pauseHiddenInput);
+            Label hiddenMeasurementLabel = new Label();
+            hiddenMeasurementLabel.Text = "숨김 중 측정";
+            hiddenMeasurementLabel.AutoSize = true;
+            hiddenMeasurementLabel.Margin = new Padding(8, 7, 3, 3);
+            checks.Controls.Add(hiddenMeasurementLabel);
+            checks.Controls.Add(hiddenMeasurementInput);
             checks.Controls.Add(startupInput);
             checks.Controls.Add(showSettingsInput);
             checks.Controls.Add(seamlessInput);
@@ -365,7 +378,7 @@ namespace TaskbarMonitor
             helpTip.SetToolTip(popupHeightInput, "독립 팝업의 세로 크기입니다. 기본 72px이며 48~400px 범위에서 조절할 수 있습니다.");
             helpTip.SetToolTip(floatingOrderInput, "일반: 다른 창을 사용하면 자연스럽게 뒤로 감 / 항상 위: 직접 선택한 경우에만 최상단 / 항상 뒤: 다른 일반 창 뒤에 둡니다.");
             helpTip.SetToolTip(autoFitInput, "날씨 버튼과 시작 버튼 사이의 실제 빈 공간에 맞춰 항목 폭을 자동으로 줄입니다.");
-            helpTip.SetToolTip(pauseHiddenInput, "위젯과 설정창이 모두 보이지 않을 때만 시스템 측정을 5초에 한 번으로 늦춥니다. 다시 표시하면 선택한 갱신 간격으로 즉시 돌아옵니다.");
+            helpTip.SetToolTip(hiddenMeasurementInput, "위젯과 설정창이 모두 숨겨졌을 때의 측정 방식입니다. 완전히 중지는 측정과 그래프 기록을 멈추고, 5초 간격 절전은 5초마다 기록하며, 계속 측정은 설정한 갱신 간격을 유지합니다.");
             helpTip.SetToolTip(startupInput, "Windows 로그인 후 저장된 설정으로 위젯을 자동 실행합니다.");
             helpTip.SetToolTip(showSettingsInput, "EXE를 직접 실행했을 때 위젯보다 설정창을 먼저 엽니다. Windows 자동 시작에는 적용되지 않습니다.");
             helpTip.SetToolTip(seamlessInput, "패널 배경과 테두리를 투명 처리해 작업표시줄 글자·그래프만 보이게 합니다.");
@@ -440,6 +453,7 @@ namespace TaskbarMonitor
             };
             fullscreenInput.SelectedIndexChanged += delegate { RefreshPreview(); };
             floatingOrderInput.SelectedIndexChanged += delegate { RefreshPreview(); };
+            hiddenMeasurementInput.SelectedIndexChanged += delegate { RefreshPreview(); };
             autoFitInput.CheckedChanged += delegate { RefreshPreview(); };
             widgetInteractionInput.CheckedChanged += delegate { RefreshPreview(); };
             overflowPagingInput.CheckedChanged += delegate { RefreshPreview(); };
@@ -449,6 +463,7 @@ namespace TaskbarMonitor
             WireDropDownPause(positionInput);
             WireDropDownPause(fullscreenInput);
             WireDropDownPause(floatingOrderInput);
+            WireDropDownPause(hiddenMeasurementInput);
             metricGrid.EditingControlShowing += MetricGridEditingControlShowing;
         }
 
@@ -508,7 +523,9 @@ namespace TaskbarMonitor
             working.FloatingZOrder = floatingOrderInput.SelectedIndex == 1 ? "Top" :
                 (floatingOrderInput.SelectedIndex == 2 ? "Bottom" : "Normal");
             working.AutoFit = autoFitInput.Checked;
-            working.PauseWhenHidden = pauseHiddenInput.Checked;
+            working.HiddenMeasurementMode = hiddenMeasurementInput.SelectedIndex == 1 ? "Throttle" :
+                (hiddenMeasurementInput.SelectedIndex == 2 ? "Continue" : "Stop");
+            working.PauseWhenHidden = !String.Equals(working.HiddenMeasurementMode, "Continue", StringComparison.OrdinalIgnoreCase);
             working.StartWithWindows = startupInput.Checked;
             working.ShowSettingsOnManualLaunch = showSettingsInput.Checked;
             working.InsideStyle = seamlessInput.Checked ? "Seamless" : "Panel";
@@ -605,7 +622,8 @@ namespace TaskbarMonitor
                 floatingOrderInput.SelectedIndex = String.Equals(working.FloatingZOrder, "Top", StringComparison.OrdinalIgnoreCase) ? 1 :
                     (String.Equals(working.FloatingZOrder, "Bottom", StringComparison.OrdinalIgnoreCase) ? 2 : 0);
                 autoFitInput.Checked = working.AutoFit;
-                pauseHiddenInput.Checked = working.PauseWhenHidden;
+                hiddenMeasurementInput.SelectedIndex = String.Equals(working.HiddenMeasurementMode, "Throttle", StringComparison.OrdinalIgnoreCase) ? 1 :
+                    (String.Equals(working.HiddenMeasurementMode, "Continue", StringComparison.OrdinalIgnoreCase) ? 2 : 0);
                 startupInput.Checked = working.StartWithWindows;
                 showSettingsInput.Checked = working.ShowSettingsOnManualLaunch;
                 seamlessInput.Checked = String.Equals(working.InsideStyle, "Seamless", StringComparison.OrdinalIgnoreCase);

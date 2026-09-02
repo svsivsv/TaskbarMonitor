@@ -76,6 +76,8 @@ namespace TaskbarMonitor
         public string FullscreenMode { get; set; }
         public string CaptureMode { get; set; }
         public bool AutoFit { get; set; }
+        public string HiddenMeasurementMode { get; set; }
+        // Legacy compatibility for settings written by builds before 0.4.14.
         public bool PauseWhenHidden { get; set; }
         public bool StartWithWindows { get; set; }
         public bool ShowSettingsOnManualLaunch { get; set; }
@@ -97,7 +99,7 @@ namespace TaskbarMonitor
         public static AppSettings CreateDefault()
         {
             AppSettings value = new AppSettings();
-            value.SettingsVersion = 5;
+            value.SettingsVersion = 6;
             value.UpdateIntervalMs = 1000;
             value.HistorySeconds = 60;
             value.MaxWidth = 560;
@@ -111,11 +113,12 @@ namespace TaskbarMonitor
             value.FullscreenMode = "Hide";
             value.CaptureMode = "Show";
             value.AutoFit = true;
+            value.HiddenMeasurementMode = "Stop";
             value.PauseWhenHidden = true;
             value.StartWithWindows = false;
             value.ShowSettingsOnManualLaunch = true;
             value.WidgetInteractionEnabled = true;
-            value.OverflowPaging = true;
+            value.OverflowPaging = false;
             value.PopupWidth = 500;
             value.PopupHeight = 72;
             value.PopupPinned = false;
@@ -192,6 +195,14 @@ namespace TaskbarMonitor
                 PopupShowOnStartup = true;
                 SettingsVersion = 5;
             }
+            if (SettingsVersion < 6)
+            {
+                // The former checkbox had no fully stopped state: checked meant
+                // five-second sampling and unchecked meant normal sampling.
+                // Migrate checked users to the new low-power default.
+                HiddenMeasurementMode = PauseWhenHidden ? "Stop" : "Continue";
+                SettingsVersion = 6;
+            }
             if (Metrics == null) Metrics = new List<MetricOption>();
             foreach (MetricOption defaultMetric in defaults.Metrics)
             {
@@ -219,6 +230,11 @@ namespace TaskbarMonitor
             if (String.IsNullOrEmpty(PositionMode)) PositionMode = defaults.PositionMode;
             if (String.IsNullOrEmpty(FullscreenMode)) FullscreenMode = defaults.FullscreenMode;
             if (String.IsNullOrEmpty(CaptureMode)) CaptureMode = defaults.CaptureMode;
+            if (!String.Equals(HiddenMeasurementMode, "Stop", StringComparison.OrdinalIgnoreCase) &&
+                !String.Equals(HiddenMeasurementMode, "Throttle", StringComparison.OrdinalIgnoreCase) &&
+                !String.Equals(HiddenMeasurementMode, "Continue", StringComparison.OrdinalIgnoreCase))
+                HiddenMeasurementMode = defaults.HiddenMeasurementMode;
+            PauseWhenHidden = !String.Equals(HiddenMeasurementMode, "Continue", StringComparison.OrdinalIgnoreCase);
             if (SelectedDisks == null || SelectedDisks.Count == 0)
                 SelectedDisks = new List<string>(defaults.SelectedDisks);
             else

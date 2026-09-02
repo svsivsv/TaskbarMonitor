@@ -101,8 +101,18 @@ namespace TaskbarMonitor
                 AppSettings settings = AppSettings.CreateDefault();
                 bool defaultResetPassed = settings.UpdateIntervalMs == 1000 && settings.HistorySeconds == 60 &&
                     settings.MaxWidth == 560 && settings.PopupWidth == 500 && settings.PopupHeight == 72 &&
-                    settings.PositionMode == "Inside" && settings.PauseWhenHidden && settings.Metrics.Count == 5;
+                    settings.PositionMode == "Inside" && settings.HiddenMeasurementMode == "Stop" &&
+                    !settings.OverflowPaging && settings.Metrics.Count == 5;
                 report["defaultResetPassed"] = defaultResetPassed;
+                DateTime samplingNow = new DateTime(2026, 1, 1, 0, 0, 10, DateTimeKind.Utc);
+                bool hiddenSamplingPolicyPassed =
+                    AppHost.ShouldSampleMetrics(false, "Stop", samplingNow, samplingNow) &&
+                    !AppHost.ShouldSampleMetrics(true, "Stop", DateTime.MinValue, samplingNow) &&
+                    !AppHost.ShouldSampleMetrics(true, "Throttle", samplingNow.AddSeconds(-4), samplingNow) &&
+                    AppHost.ShouldSampleMetrics(true, "Throttle", samplingNow.AddSeconds(-5), samplingNow) &&
+                    AppHost.ShouldSampleMetrics(true, "Continue", samplingNow, samplingNow);
+                report["hiddenSamplingModes"] = new string[] { "Stop", "Throttle", "Continue" };
+                report["hiddenSamplingPolicyPassed"] = hiddenSamplingPolicyPassed;
                 bool widgetInputPolicyPassed = WidgetForm.ShouldAcceptWidgetInput(true, false) &&
                     !WidgetForm.ShouldAcceptWidgetInput(false, false) &&
                     !WidgetForm.ShouldAcceptWidgetInput(true, true) &&
@@ -273,7 +283,7 @@ namespace TaskbarMonitor
                         snapshot.CpuPercent <= 100.0 && desktopExcluded && memoryFormatSupported &&
                         snapshot.DiskPercents != null && snapshot.DiskPercents.Count == settings.SelectedDisks.Count &&
                         multiDiskDisplayCount == expectedMultiDiskDisplayCount && pagingPassed && embeddedDockingPassed &&
-                        defaultResetPassed && widgetInputPolicyPassed && contextMenuAutoDismissConfigured &&
+                        defaultResetPassed && hiddenSamplingPolicyPassed && widgetInputPolicyPassed && contextMenuAutoDismissConfigured &&
                         clickThroughNativeStatePassed && runtimeInteractionMatchesSettings && disabledDoubleClickSuppressed &&
                         String.Equals(settings.FloatingZOrder, "Normal", StringComparison.OrdinalIgnoreCase) &&
                         settings.PopupShowOnStartup && windowChecksPassed;

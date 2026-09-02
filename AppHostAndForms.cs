@@ -341,12 +341,14 @@ namespace TaskbarMonitor
                 bool settingsVisible = settingsForm != null && !settingsForm.IsDisposed && settingsForm.Visible &&
                     settingsForm.WindowState != FormWindowState.Minimized;
                 bool widgetVisible = monitoring && widgetForm != null && !widgetForm.IsDisposed && widgetForm.Visible;
-                bool hiddenAndThrottled = settings.PauseWhenHidden && !settingsVisible && !widgetVisible;
-                if (!hiddenAndThrottled || (DateTime.UtcNow - lastHiddenSample).TotalSeconds >= 5.0)
+                bool hidden = !settingsVisible && !widgetVisible;
+                DateTime now = DateTime.UtcNow;
+                if (ShouldSampleMetrics(hidden, settings.HiddenMeasurementMode, lastHiddenSample, now))
                 {
                     snapshot = sampler.Sample(settings);
                     history.Add(snapshot);
-                    if (hiddenAndThrottled) lastHiddenSample = DateTime.UtcNow;
+                    if (hidden && String.Equals(settings.HiddenMeasurementMode, "Throttle", StringComparison.OrdinalIgnoreCase))
+                        lastHiddenSample = now;
                 }
             }
 
@@ -364,6 +366,16 @@ namespace TaskbarMonitor
             }
             if (settingsForm != null && !settingsForm.IsDisposed)
                 settingsForm.UpdatePreview(snapshot, history);
+        }
+
+        internal static bool ShouldSampleMetrics(bool hidden, string hiddenMeasurementMode,
+            DateTime lastHiddenSampleUtc, DateTime nowUtc)
+        {
+            if (!hidden) return true;
+            if (String.Equals(hiddenMeasurementMode, "Stop", StringComparison.OrdinalIgnoreCase)) return false;
+            if (String.Equals(hiddenMeasurementMode, "Throttle", StringComparison.OrdinalIgnoreCase))
+                return (nowUtc - lastHiddenSampleUtc).TotalSeconds >= 5.0;
+            return true;
         }
 
         private void UpdateTrayTooltip()
