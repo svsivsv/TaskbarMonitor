@@ -48,6 +48,12 @@ if ($LASTEXITCODE -ne 0) {
     throw "컴파일에 실패했습니다. 종료 코드: $LASTEXITCODE"
 }
 
+$readmeSource = Join-Path $projectRoot 'README.md'
+$readmeOutput = Join-Path $outputDirectory 'README.md'
+if (Test-Path -LiteralPath $readmeSource) {
+    Copy-Item -LiteralPath $readmeSource -Destination $readmeOutput -Force
+}
+
 $builtFile = Get-Item -LiteralPath $outputPath
 $hash = Get-FileHash -LiteralPath $outputPath -Algorithm SHA256
 [pscustomobject]@{
