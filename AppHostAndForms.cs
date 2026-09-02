@@ -66,11 +66,13 @@ namespace TaskbarMonitor
 
     public sealed class AppHost : ApplicationContext
     {
+        internal const int ContextMenuAutoDismissMilliseconds = 1200;
         private AppSettings settings;
         private readonly MetricSampler sampler;
         private readonly MetricHistory history;
         private MetricSnapshot snapshot;
         private readonly Timer refreshTimer;
+        private readonly Timer contextMenuDismissTimer;
         private readonly NotifyIcon trayIcon;
         private readonly ContextMenuStrip contextMenu;
         private ToolStripMenuItem interactionMenuItem;
@@ -88,7 +90,9 @@ namespace TaskbarMonitor
         private bool monitoring;
         private bool paused;
         private bool showSettingsAfterMenuClose;
+        private int taskManagerLaunchCount;
         private DateTime lastHiddenSample;
+        private DateTime contextMenuPointerLeftAt = DateTime.MinValue;
 
         public AppHost(bool startupLaunch) : this(startupLaunch, false)
         {
@@ -107,14 +111,25 @@ namespace TaskbarMonitor
             messageSink.ShowSettingsRequested += delegate { RequestShowSettings(); };
 
             contextMenu = BuildContextMenu();
+            contextMenu.AutoClose = true;
+            contextMenuDismissTimer = new Timer();
+            contextMenuDismissTimer.Interval = 150;
+            contextMenuDismissTimer.Tick += ContextMenuDismissTick;
             contextMenu.Opening += delegate
             {
                 UpdatePositionModeMenu();
                 floatingOrderMenuItem.Enabled = !String.Equals(settings.PositionMode, "Inside", StringComparison.OrdinalIgnoreCase);
                 UpdateFloatingOrderMenu();
             };
+            contextMenu.Opened += delegate
+            {
+                contextMenuPointerLeftAt = DateTime.MinValue;
+                contextMenuDismissTimer.Start();
+            };
             contextMenu.Closed += delegate
             {
+                contextMenuDismissTimer.Stop();
+                contextMenuPointerLeftAt = DateTime.MinValue;
                 if (!showSettingsAfterMenuClose) return;
                 showSettingsAfterMenuClose = false;
                 try
@@ -154,6 +169,7 @@ namespace TaskbarMonitor
         public MetricSnapshot Snapshot { get { return snapshot; } }
         public MetricHistory History { get { return history; } }
         public ContextMenuStrip SharedContextMenu { get { return contextMenu; } }
+        internal int TaskManagerLaunchCount { get { return taskManagerLaunchCount; } }
 
         private ContextMenuStrip BuildContextMenu()
         {
@@ -196,7 +212,53 @@ namespace TaskbarMonitor
             menu.Items.Add("작업 관리자 열기", null, delegate { OpenTaskManager(); });
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("종료", null, delegate { Shutdown(); });
+            menu.MouseUp += ContextMenuMouseUp;
+            positionModeMenuItem.DropDown.MouseUp += ContextMenuMouseUp;
+            floatingOrderMenuItem.DropDown.MouseUp += ContextMenuMouseUp;
             return menu;
+        }
+
+        private void ContextMenuMouseUp(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Right && contextMenu.Visible)
+                contextMenu.Close(ToolStripDropDownCloseReason.AppClicked);
+        }
+
+        private void ContextMenuDismissTick(object sender, EventArgs e)
+        {
+            if (!contextMenu.Visible)
+            {
+                contextMenuDismissTimer.Stop();
+                contextMenuPointerLeftAt = DateTime.MinValue;
+                return;
+            }
+
+            if (IsPointerOverDropDown(contextMenu))
+            {
+                contextMenuPointerLeftAt = DateTime.MinValue;
+                return;
+            }
+
+            if (contextMenuPointerLeftAt == DateTime.MinValue)
+            {
+                contextMenuPointerLeftAt = DateTime.UtcNow;
+                return;
+            }
+
+            if ((DateTime.UtcNow - contextMenuPointerLeftAt).TotalMilliseconds >= ContextMenuAutoDismissMilliseconds)
+                contextMenu.Close(ToolStripDropDownCloseReason.AppClicked);
+        }
+
+        private static bool IsPointerOverDropDown(ToolStripDropDown dropDown)
+        {
+            if (dropDown == null || !dropDown.Visible) return false;
+            if (dropDown.Bounds.Contains(Cursor.Position)) return true;
+            foreach (ToolStripItem item in dropDown.Items)
+            {
+                ToolStripDropDownItem dropDownItem = item as ToolStripDropDownItem;
+                if (dropDownItem != null && IsPointerOverDropDown(dropDownItem.DropDown)) return true;
+            }
+            return false;
         }
 
         private void SetPositionMode(string mode)
@@ -434,8 +496,18 @@ namespace TaskbarMonitor
 
         public void OpenTaskManager()
         {
-            try { Process.Start("taskmgr.exe"); }
+            try
+            {
+                Process.Start("taskmgr.exe");
+                taskManagerLaunchCount++;
+            }
             catch (Exception ex) { MessageBox.Show("작업 관리자를 열지 못했습니다.\n" + ex.Message, "Taskbar Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+        }
+
+        public void OpenTaskManagerFromWidget()
+        {
+            if (!settings.WidgetInteractionEnabled) return;
+            OpenTaskManager();
         }
 
         public void Shutdown()
@@ -446,9 +518,11 @@ namespace TaskbarMonitor
         protected override void ExitThreadCore()
         {
             refreshTimer.Stop();
+            contextMenuDismissTimer.Stop();
             trayIcon.Visible = false;
             trayIcon.Dispose();
             contextMenu.Dispose();
+            contextMenuDismissTimer.Dispose();
             messageSink.Dispose();
             if (widgetForm != null) widgetForm.Dispose();
             if (settingsForm != null) settingsForm.Dispose();
@@ -499,6 +573,7 @@ namespace TaskbarMonitor
             bar.MouseMove += BarMouseMove;
             bar.MouseUp += BarMouseUp;
             bar.MouseDoubleClick += BarMouseDoubleClick;
+            bar.HandleCreated += delegate { NativeMethods.SetClickThrough(bar.Handle, !AcceptsWidgetInput()); };
             Controls.Add(bar);
         }
 
@@ -516,6 +591,11 @@ namespace TaskbarMonitor
 
         protected override void WndProc(ref Message message)
         {
+            if (message.Msg == NativeMethods.WM_NCHITTEST && !AcceptsWidgetInput())
+            {
+                message.Result = new IntPtr(NativeMethods.HTTRANSPARENT);
+                return;
+            }
             if (message.Msg == NativeMethods.WM_NCHITTEST && IsResizablePopup())
             {
                 long packed = message.LParam.ToInt64();
@@ -541,12 +621,22 @@ namespace TaskbarMonitor
                 message.Result = IntPtr.Zero;
                 return;
             }
+            if (message.Msg == NativeMethods.WM_APP_QUERY_INTERACTION_ENABLED)
+            {
+                message.Result = host.Settings.WidgetInteractionEnabled ? new IntPtr(1) : IntPtr.Zero;
+                return;
+            }
+            if (message.Msg == NativeMethods.WM_APP_QUERY_TASK_MANAGER_LAUNCH_COUNT)
+            {
+                message.Result = new IntPtr(host.TaskManagerLaunchCount);
+                return;
+            }
             base.WndProc(ref message);
         }
 
         private void BarMouseDown(object sender, MouseEventArgs e)
         {
-            if (e.Button != MouseButtons.Left || !IsPopupMode() || host.Settings.PopupPinned || bar.IsNavigationPoint(e.Location)) return;
+            if (!AcceptsWidgetInput() || e.Button != MouseButtons.Left || !IsPopupMode() || host.Settings.PopupPinned || bar.IsNavigationPoint(e.Location)) return;
             popupDragging = true;
             popupDragMoved = false;
             popupDragStartCursor = Cursor.Position;
@@ -556,7 +646,7 @@ namespace TaskbarMonitor
 
         private void BarMouseMove(object sender, MouseEventArgs e)
         {
-            if (!popupDragging) return;
+            if (!AcceptsWidgetInput() || !popupDragging) return;
             Point cursor = Cursor.Position;
             int deltaX = cursor.X - popupDragStartCursor.X;
             int deltaY = cursor.Y - popupDragStartCursor.Y;
@@ -569,6 +659,12 @@ namespace TaskbarMonitor
 
         private void BarMouseUp(object sender, MouseEventArgs e)
         {
+            if (!AcceptsWidgetInput())
+            {
+                popupDragging = false;
+                bar.Capture = false;
+                return;
+            }
             if (e.Button == MouseButtons.Left && popupDragging)
             {
                 popupDragging = false;
@@ -581,7 +677,8 @@ namespace TaskbarMonitor
 
         private void BarMouseDoubleClick(object sender, MouseEventArgs e)
         {
-            if (e.Button == MouseButtons.Left && !bar.IsNavigationPoint(e.Location)) host.OpenTaskManager();
+            if (AcceptsWidgetInput() && e.Button == MouseButtons.Left && !bar.IsNavigationPoint(e.Location))
+                host.OpenTaskManagerFromWidget();
         }
 
         public void UpdateData(AppSettings settings, MetricSnapshot snapshot, MetricHistory history)
@@ -734,6 +831,17 @@ namespace TaskbarMonitor
                 NativeMethods.SetClickThrough(Handle, shouldClickThrough);
                 clickThrough = shouldClickThrough;
             }
+            if (bar.IsHandleCreated) NativeMethods.SetClickThrough(bar.Handle, shouldClickThrough);
+        }
+
+        private bool AcceptsWidgetInput()
+        {
+            return ShouldAcceptWidgetInput(host.Settings.WidgetInteractionEnabled, fullscreenClickThrough);
+        }
+
+        internal static bool ShouldAcceptWidgetInput(bool interactionEnabled, bool fullscreenPassThrough)
+        {
+            return interactionEnabled && !fullscreenPassThrough;
         }
 
         private void ApplyAutomaticVisibility(bool monitoring)

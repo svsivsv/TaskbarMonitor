@@ -30,9 +30,13 @@ namespace TaskbarMonitor
         public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
         public static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
         public const int WM_NCHITTEST = 0x0084;
+        public const int WM_LBUTTONDBLCLK = 0x0203;
         public const int WM_EXITSIZEMOVE = 0x0232;
+        public const int HTTRANSPARENT = -1;
         public const int HTBOTTOMRIGHT = 17;
         public static readonly int WM_APP_SHOW_SETTINGS = (int)RegisterWindowMessage("TaskbarMonitor.ShowSettings.svsivsv.v1");
+        public static readonly int WM_APP_QUERY_INTERACTION_ENABLED = (int)RegisterWindowMessage("TaskbarMonitor.QueryInteraction.svsivsv.v1");
+        public static readonly int WM_APP_QUERY_TASK_MANAGER_LAUNCH_COUNT = (int)RegisterWindowMessage("TaskbarMonitor.QueryTaskManagerLaunches.svsivsv.v1");
         public const string MessageSinkCaption = "TaskbarMonitor.MessageSink.1";
         public static readonly IntPtr HWND_BROADCAST = new IntPtr(0xffff);
 
@@ -284,7 +288,12 @@ namespace TaskbarMonitor
             if (hwnd == IntPtr.Zero) return;
             int style = GetWindowLong(hwnd, GWL_EXSTYLE);
             int updated = enabled ? style | WS_EX_TRANSPARENT : style & ~WS_EX_TRANSPARENT;
-            if (updated != style) SetWindowLong(hwnd, GWL_EXSTYLE, updated);
+            if (updated != style)
+            {
+                SetWindowLong(hwnd, GWL_EXSTYLE, updated);
+                SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+            }
         }
     }
 

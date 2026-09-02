@@ -369,7 +369,7 @@ namespace TaskbarMonitor
             helpTip.SetToolTip(startupInput, "Windows 로그인 후 저장된 설정으로 위젯을 자동 실행합니다.");
             helpTip.SetToolTip(showSettingsInput, "EXE를 직접 실행했을 때 위젯보다 설정창을 먼저 엽니다. Windows 자동 시작에는 적용되지 않습니다.");
             helpTip.SetToolTip(seamlessInput, "패널 배경과 테두리를 투명 처리해 작업표시줄 글자·그래프만 보이게 합니다.");
-            helpTip.SetToolTip(widgetInteractionInput, "켜면 위젯의 빈 공간까지 클릭·우클릭되고 팝업을 끌어 이동할 수 있습니다. 끄면 위젯 전체가 뒤 창으로 클릭 통과됩니다.");
+            helpTip.SetToolTip(widgetInteractionInput, "켜면 위젯 전체에서 클릭·우클릭·더블클릭과 팝업 이동을 사용할 수 있습니다. 끄면 작업 관리자 실행을 포함한 모든 위젯 입력이 차단되고 뒤 창으로 통과합니다. 다시 켤 때는 트레이 아이콘의 우클릭 메뉴를 사용하세요.");
             helpTip.SetToolTip(overflowPagingInput, "항목이 표시 공간보다 많을 때 폭을 계속 줄이지 않고 좌우 화살표로 페이지를 전환합니다. 페이지별 항목 수도 최대한 균등하게 나눕니다.");
             helpTip.SetToolTip(popupPinnedInput, "팝업을 원하는 곳으로 옮기고 크기를 맞춘 뒤 켜세요. 현재 좌표를 저장하며 이동과 크기 조절을 잠급니다. 끄면 다시 조절할 수 있습니다.");
             helpTip.SetToolTip(popupShowOnStartupInput, "켜면 EXE 실행 또는 Windows 로그인 때 팝업을 바로 표시합니다. 끄면 트레이 아이콘을 클릭할 때까지 숨겨 둡니다.");

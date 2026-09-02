@@ -103,6 +103,13 @@ namespace TaskbarMonitor
                     settings.MaxWidth == 560 && settings.PopupWidth == 500 && settings.PopupHeight == 72 &&
                     settings.PositionMode == "Inside" && settings.PauseWhenHidden && settings.Metrics.Count == 5;
                 report["defaultResetPassed"] = defaultResetPassed;
+                bool widgetInputPolicyPassed = WidgetForm.ShouldAcceptWidgetInput(true, false) &&
+                    !WidgetForm.ShouldAcceptWidgetInput(false, false) &&
+                    !WidgetForm.ShouldAcceptWidgetInput(true, true) &&
+                    !WidgetForm.ShouldAcceptWidgetInput(false, true);
+                report["widgetInputPolicyPassed"] = widgetInputPolicyPassed;
+                bool contextMenuAutoDismissConfigured = AppHost.ContextMenuAutoDismissMilliseconds == 1200;
+                report["contextMenuAutoDismissConfigured"] = contextMenuAutoDismissConfigured;
                 settings.SelectedDisks = AppSettings.GetAvailableDiskNames();
                 using (MetricSampler sampler = new MetricSampler())
                 {
@@ -124,6 +131,47 @@ namespace TaskbarMonitor
                     report["desktopExcludedFromFullscreen"] = desktopExcluded;
                     IntPtr taskbarWindow = NativeMethods.GetPrimaryTaskbarHandle();
                     IntPtr widgetWindow = NativeMethods.FindWindow(null, "Taskbar Monitor");
+                    AppSettings persistedSettings = SettingsStore.Load();
+                    bool expectedClickThrough = !persistedSettings.WidgetInteractionEnabled;
+                    int widgetExStyle = widgetWindow == IntPtr.Zero ? 0 :
+                        NativeMethods.GetWindowLong(widgetWindow, NativeMethods.GWL_EXSTYLE);
+                    IntPtr widgetChild = widgetWindow == IntPtr.Zero ? IntPtr.Zero : NativeMethods.GetTopWindow(widgetWindow);
+                    int widgetChildExStyle = widgetChild == IntPtr.Zero ? 0 :
+                        NativeMethods.GetWindowLong(widgetChild, NativeMethods.GWL_EXSTYLE);
+                    bool widgetClickThroughStyle = (widgetExStyle & NativeMethods.WS_EX_TRANSPARENT) != 0;
+                    bool widgetChildClickThroughStyle = (widgetChildExStyle & NativeMethods.WS_EX_TRANSPARENT) != 0;
+                    bool clickThroughNativeStatePassed = widgetWindow == IntPtr.Zero ||
+                        (widgetClickThroughStyle == expectedClickThrough &&
+                         (widgetChild == IntPtr.Zero || widgetChildClickThroughStyle == expectedClickThrough));
+                    report["persistedWidgetInteractionEnabled"] = persistedSettings.WidgetInteractionEnabled;
+                    bool runtimeInteractionEnabled = widgetWindow != IntPtr.Zero &&
+                        NativeMethods.SendMessage(widgetWindow, NativeMethods.WM_APP_QUERY_INTERACTION_ENABLED,
+                            IntPtr.Zero, IntPtr.Zero) != IntPtr.Zero;
+                    int runtimeTaskManagerLaunchCount = widgetWindow == IntPtr.Zero ? -1 :
+                        NativeMethods.SendMessage(widgetWindow, NativeMethods.WM_APP_QUERY_TASK_MANAGER_LAUNCH_COUNT,
+                            IntPtr.Zero, IntPtr.Zero).ToInt32();
+                    bool disabledDoubleClickSuppressed = true;
+                    if (widgetChild != IntPtr.Zero && !persistedSettings.WidgetInteractionEnabled)
+                    {
+                        int launchesBefore = runtimeTaskManagerLaunchCount;
+                        NativeMethods.SendMessage(widgetChild, NativeMethods.WM_LBUTTONDBLCLK,
+                            new IntPtr(1), new IntPtr((10 << 16) | 10));
+                        Thread.Sleep(50);
+                        int launchesAfter = NativeMethods.SendMessage(widgetWindow,
+                            NativeMethods.WM_APP_QUERY_TASK_MANAGER_LAUNCH_COUNT,
+                            IntPtr.Zero, IntPtr.Zero).ToInt32();
+                        disabledDoubleClickSuppressed = launchesAfter == launchesBefore;
+                        runtimeTaskManagerLaunchCount = launchesAfter;
+                    }
+                    bool runtimeInteractionMatchesSettings = widgetWindow == IntPtr.Zero ||
+                        runtimeInteractionEnabled == persistedSettings.WidgetInteractionEnabled;
+                    report["runtimeWidgetInteractionEnabled"] = runtimeInteractionEnabled;
+                    report["runtimeTaskManagerLaunchCount"] = runtimeTaskManagerLaunchCount;
+                    report["disabledDoubleClickSuppressed"] = disabledDoubleClickSuppressed;
+                    report["runtimeInteractionMatchesSettings"] = runtimeInteractionMatchesSettings;
+                    report["widgetClickThroughStyle"] = widgetClickThroughStyle;
+                    report["widgetChildClickThroughStyle"] = widgetChildClickThroughStyle;
+                    report["clickThroughNativeStatePassed"] = clickThroughNativeStatePassed;
                     IntPtr embeddedWidget = widgetWindow != IntPtr.Zero &&
                         NativeMethods.GetParent(widgetWindow) == taskbarWindow ? widgetWindow : IntPtr.Zero;
                     NativeMethods.RECT taskbarRect;
@@ -225,7 +273,8 @@ namespace TaskbarMonitor
                         snapshot.CpuPercent <= 100.0 && desktopExcluded && memoryFormatSupported &&
                         snapshot.DiskPercents != null && snapshot.DiskPercents.Count == settings.SelectedDisks.Count &&
                         multiDiskDisplayCount == expectedMultiDiskDisplayCount && pagingPassed && embeddedDockingPassed &&
-                        defaultResetPassed &&
+                        defaultResetPassed && widgetInputPolicyPassed && contextMenuAutoDismissConfigured &&
+                        clickThroughNativeStatePassed && runtimeInteractionMatchesSettings && disabledDoubleClickSuppressed &&
                         String.Equals(settings.FloatingZOrder, "Normal", StringComparison.OrdinalIgnoreCase) &&
                         settings.PopupShowOnStartup && windowChecksPassed;
                 }
