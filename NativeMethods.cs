@@ -20,7 +20,7 @@ namespace TaskbarMonitor
         public const uint SWP_SHOWWINDOW = 0x0040;
         public const uint SWP_FRAMECHANGED = 0x0020;
         public static readonly IntPtr HWND_TOP = IntPtr.Zero;
-        public const int WM_APP_SHOW_SETTINGS = 0x8001;
+        public static readonly int WM_APP_SHOW_SETTINGS = (int)RegisterWindowMessage("TaskbarMonitor.ShowSettings.svsivsv.v1");
         public const string MessageSinkCaption = "TaskbarMonitor.MessageSink.1";
         public static readonly IntPtr HWND_BROADCAST = new IntPtr(0xffff);
 
@@ -80,6 +80,9 @@ namespace TaskbarMonitor
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr childAfter, string className, string windowName);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern uint RegisterWindowMessage(string messageName);
 
         [DllImport("user32.dll")]
         public static extern bool SetForegroundWindow(IntPtr hwnd);

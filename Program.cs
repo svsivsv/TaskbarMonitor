@@ -45,6 +45,8 @@ namespace TaskbarMonitor
                     }
                     if (existing != IntPtr.Zero)
                         NativeMethods.PostMessage(existing, NativeMethods.WM_APP_SHOW_SETTINGS, IntPtr.Zero, IntPtr.Zero);
+                    else
+                        NativeMethods.PostMessage(NativeMethods.HWND_BROADCAST, NativeMethods.WM_APP_SHOW_SETTINGS, IntPtr.Zero, IntPtr.Zero);
                     return;
                 }
 

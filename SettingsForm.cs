@@ -31,6 +31,7 @@ namespace TaskbarMonitor
         private readonly CheckBox seamlessInput;
         private readonly CheckBox widgetInteractionInput;
         private readonly CheckBox overflowPagingInput;
+        private readonly CheckBox popupPinnedInput;
         private readonly CheckedListBox diskList;
         private readonly ToolTip helpTip;
         private MetricSnapshot lastSnapshot;
@@ -158,6 +159,7 @@ namespace TaskbarMonitor
             seamlessInput = NewCheckBox("작업 표시줄 무배경 결합", working.InsideStyle == "Seamless");
             widgetInteractionInput = NewCheckBox("위젯 전체 영역 클릭 인식", working.WidgetInteractionEnabled);
             overflowPagingInput = NewCheckBox("공간 초과 시 좌우 페이지", working.OverflowPaging);
+            popupPinnedInput = NewCheckBox("현재 팝업 위치 고정", working.PopupPinned);
             checks.Controls.Add(autoFitInput);
             checks.Controls.Add(pauseHiddenInput);
             checks.Controls.Add(startupInput);
@@ -165,6 +167,7 @@ namespace TaskbarMonitor
             checks.Controls.Add(seamlessInput);
             checks.Controls.Add(widgetInteractionInput);
             checks.Controls.Add(overflowPagingInput);
+            checks.Controls.Add(popupPinnedInput);
             table.Controls.Add(checks, 0, 6);
             table.SetColumnSpan(checks, 4);
 
@@ -202,7 +205,7 @@ namespace TaskbarMonitor
             helpText.Text =
                 "권장값은 갱신 1000ms, 그래프 기록 60초입니다. 갱신 값을 낮추면 더 빠르게 반응하지만 CPU 사용량이 늘 수 있습니다.\r\n" +
                 "최대 너비·왼쪽 여백은 작업표시줄 배치, 팝업 너비·높이는 독립 팝업 창 크기를 조절합니다.\r\n" +
-                "팝업 빈 곳을 끌어 이동하고 '위치 고정'을 누르면 재실행 후에도 그 자리에 고정됩니다. 항목 초과 시 좌우 화살표로 넘깁니다.";
+                "팝업을 끌어 이동한 뒤 '현재 팝업 위치 고정'을 켜서 적용하면 재실행 후에도 그 자리에 고정됩니다. 항목 초과 시 좌우 화살표로 넘깁니다.";
             helpGroup.Controls.Add(helpText);
             Controls.Add(helpGroup);
 
@@ -336,6 +339,7 @@ namespace TaskbarMonitor
             helpTip.SetToolTip(seamlessInput, "패널 배경과 테두리를 투명 처리해 작업표시줄 글자·그래프만 보이게 합니다.");
             helpTip.SetToolTip(widgetInteractionInput, "켜면 위젯의 빈 공간까지 클릭·우클릭되고 팝업을 끌어 이동할 수 있습니다. 끄면 위젯 전체가 뒤 창으로 클릭 통과됩니다.");
             helpTip.SetToolTip(overflowPagingInput, "항목이 표시 공간보다 많을 때 폭을 계속 줄이지 않고 좌우 화살표로 페이지를 전환합니다. 페이지별 항목 수도 최대한 균등하게 나눕니다.");
+            helpTip.SetToolTip(popupPinnedInput, "팝업을 원하는 곳으로 먼저 끌어 옮긴 뒤 켜고 적용하세요. 현재 화면 좌표를 저장하고 이동을 잠급니다. 끄면 다시 드래그할 수 있습니다.");
             helpTip.SetToolTip(diskList, "동시에 감시할 드라이브를 여러 개 선택합니다. 각 드라이브의 디스크 사용 시간을 별도 항목과 그래프로 표시합니다.");
         }
 
@@ -399,6 +403,7 @@ namespace TaskbarMonitor
             autoFitInput.CheckedChanged += delegate { RefreshPreview(); };
             widgetInteractionInput.CheckedChanged += delegate { RefreshPreview(); };
             overflowPagingInput.CheckedChanged += delegate { RefreshPreview(); };
+            popupPinnedInput.CheckedChanged += delegate { RefreshPreview(); };
             diskList.ItemCheck += delegate { BeginInvoke((MethodInvoker)delegate { RefreshPreview(); }); };
             WireDropDownPause(positionInput);
             WireDropDownPause(fullscreenInput);
@@ -465,6 +470,7 @@ namespace TaskbarMonitor
             working.InsideStyle = seamlessInput.Checked ? "Seamless" : "Panel";
             working.WidgetInteractionEnabled = widgetInteractionInput.Checked;
             working.OverflowPaging = overflowPagingInput.Checked;
+            working.PopupPinned = popupPinnedInput.Checked;
             working.SelectedDisks = diskList.CheckedItems.Cast<object>().Select(delegate(object item) { return Convert.ToString(item); })
                 .Where(delegate(string name) { return !String.IsNullOrWhiteSpace(name); }).ToList();
             if (working.SelectedDisks.Count == 0) working.SelectedDisks.AddRange(AppSettings.GetAvailableDiskNames().Take(1));

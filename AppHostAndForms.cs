@@ -98,7 +98,7 @@ namespace TaskbarMonitor
             messageSink.ShowSettingsRequested += delegate { RequestShowSettings(); };
 
             showSettingsTimer = new Timer();
-            showSettingsTimer.Interval = 80;
+            showSettingsTimer.Interval = 180;
             showSettingsTimer.Tick += delegate
             {
                 showSettingsTimer.Stop();
@@ -169,6 +169,7 @@ namespace TaskbarMonitor
         public void RequestShowSettings()
         {
             if (contextMenu != null && contextMenu.Visible) contextMenu.Close();
+            ShowSettings();
             showSettingsTimer.Stop();
             showSettingsTimer.Start();
         }
@@ -263,6 +264,16 @@ namespace TaskbarMonitor
         public void ApplySettings(AppSettings newSettings, bool startMonitor)
         {
             newSettings.EnsureDefaults();
+            bool capturePopupLocation = newSettings.PopupPinned &&
+                (!settings.PopupPinned || !newSettings.PopupPositionSaved);
+            if (capturePopupLocation && widgetForm != null && !widgetForm.IsDisposed &&
+                String.Equals(settings.PositionMode, "Popup", StringComparison.OrdinalIgnoreCase))
+            {
+                Rectangle currentBounds = widgetForm.GetScreenBounds();
+                newSettings.PopupPositionSaved = true;
+                newSettings.PopupX = currentBounds.X;
+                newSettings.PopupY = currentBounds.Y;
+            }
             settings = newSettings.Clone();
             if (interactionMenuItem != null) interactionMenuItem.Checked = settings.WidgetInteractionEnabled;
             SettingsStore.Save(settings);
@@ -270,22 +281,16 @@ namespace TaskbarMonitor
             history.Configure(settings.HistorySeconds, settings.UpdateIntervalMs);
             refreshTimer.Interval = Math.Max(200, Math.Min(10000, settings.UpdateIntervalMs));
             if (widgetForm != null) widgetForm.UpdateData(settings, snapshot, history);
+            if (settings.PopupPinned && !settings.PopupPositionSaved && widgetForm != null && !widgetForm.IsDisposed)
+            {
+                Rectangle positionedBounds = widgetForm.GetScreenBounds();
+                settings.PopupPositionSaved = true;
+                settings.PopupX = positionedBounds.X;
+                settings.PopupY = positionedBounds.Y;
+                SettingsStore.Save(settings);
+            }
             if (detailForm != null) detailForm.UpdateData(settings, snapshot, history);
             if (startMonitor) StartMonitor();
-        }
-
-        public void SetPopupPinned(bool pinned, Point location)
-        {
-            AppSettings updated = settings.Clone();
-            updated.PopupPinned = pinned;
-            if (pinned)
-            {
-                updated.PopupPositionSaved = true;
-                updated.PopupX = location.X;
-                updated.PopupY = location.Y;
-            }
-            settings = updated;
-            SettingsStore.Save(settings);
         }
 
         public void StartMonitor()
@@ -407,8 +412,6 @@ namespace TaskbarMonitor
         private static readonly Color IntegratedBackgroundKey = Color.FromArgb(31, 31, 31);
         private readonly AppHost host;
         private readonly MetricBarControl bar;
-        private readonly Panel popupActions;
-        private readonly Button pinButton;
         private bool clickThrough;
         private bool fullscreenClickThrough;
         private bool embedded;
@@ -420,6 +423,7 @@ namespace TaskbarMonitor
         private bool popupDragMoved;
         private bool consumePopupClick;
         private bool manualPopupLocation;
+        private bool previousPopupPinned;
         private Point popupDragStartCursor;
         private Point popupDragStartLocation;
 
@@ -440,26 +444,6 @@ namespace TaskbarMonitor
             bar.MouseUp += BarMouseUp;
             bar.MouseDoubleClick += BarMouseDoubleClick;
             Controls.Add(bar);
-
-            popupActions = new Panel();
-            popupActions.Dock = DockStyle.Right;
-            popupActions.Width = 72;
-            popupActions.Padding = new Padding(4, 5, 4, 0);
-            popupActions.BackColor = Color.FromArgb(28, 28, 28);
-            popupActions.Visible = false;
-            pinButton = new Button();
-            pinButton.Dock = DockStyle.Top;
-            pinButton.Height = 25;
-            pinButton.TabStop = false;
-            pinButton.FlatStyle = FlatStyle.Flat;
-            pinButton.FlatAppearance.BorderColor = Color.FromArgb(85, 255, 255, 255);
-            pinButton.BackColor = Color.FromArgb(45, 45, 45);
-            pinButton.ForeColor = Color.White;
-            pinButton.Font = new Font("Segoe UI", 8.0f, FontStyle.Regular, GraphicsUnit.Point);
-            pinButton.Click += TogglePopupPin;
-            popupActions.Controls.Add(pinButton);
-            Controls.Add(popupActions);
-            popupActions.BringToFront();
         }
 
         protected override bool ShowWithoutActivation { get { return true; } }
@@ -539,16 +523,6 @@ namespace TaskbarMonitor
             if (e.Button == MouseButtons.Left && !bar.IsNavigationPoint(e.Location)) host.OpenTaskManager();
         }
 
-        private void TogglePopupPin(object sender, EventArgs e)
-        {
-            if (!IsPopupMode()) return;
-            bool pinned = !host.Settings.PopupPinned;
-            host.SetPopupPinned(pinned, Location);
-            manualPopupLocation = true;
-            UpdatePopupControls();
-            PositionWidget();
-        }
-
         public void UpdateData(AppSettings settings, MetricSnapshot snapshot, MetricHistory history)
         {
             bool insideMode = String.Equals(settings.PositionMode, "Inside", StringComparison.OrdinalIgnoreCase);
@@ -558,11 +532,12 @@ namespace TaskbarMonitor
                 hiddenByUser = false;
                 manualPopupLocation = false;
             }
-            popupActions.Visible = popupMode;
-            UpdatePopupControls();
+            else if (previousPopupPinned && !settings.PopupPinned)
+                manualPopupLocation = true;
             bar.SetIntegratedStyle(insideMode, IntegratedBackgroundKey);
             bar.Configure(settings, snapshot, history);
             PositionWidget();
+            previousPopupPinned = settings.PopupPinned;
             bool seamless = insideMode && embedded && String.Equals(settings.InsideStyle, "Seamless", StringComparison.OrdinalIgnoreCase);
             if (seamless)
             {
@@ -701,12 +676,6 @@ namespace TaskbarMonitor
         private bool IsPopupMode()
         {
             return String.Equals(host.Settings.PositionMode, "Popup", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private void UpdatePopupControls()
-        {
-            pinButton.Text = host.Settings.PopupPinned ? "고정 해제" : "위치 고정";
-            pinButton.BackColor = host.Settings.PopupPinned ? Color.FromArgb(0, 105, 125) : Color.FromArgb(45, 45, 45);
         }
 
         private static Rectangle ClampPopupBounds(Rectangle desired)
