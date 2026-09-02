@@ -99,6 +99,10 @@ namespace TaskbarMonitor
             try
             {
                 AppSettings settings = AppSettings.CreateDefault();
+                bool defaultResetPassed = settings.UpdateIntervalMs == 1000 && settings.HistorySeconds == 60 &&
+                    settings.MaxWidth == 560 && settings.PopupWidth == 500 && settings.PopupHeight == 72 &&
+                    settings.PositionMode == "Inside" && settings.PauseWhenHidden && settings.Metrics.Count == 5;
+                report["defaultResetPassed"] = defaultResetPassed;
                 settings.SelectedDisks = AppSettings.GetAvailableDiskNames();
                 using (MetricSampler sampler = new MetricSampler())
                 {
@@ -221,6 +225,7 @@ namespace TaskbarMonitor
                         snapshot.CpuPercent <= 100.0 && desktopExcluded && memoryFormatSupported &&
                         snapshot.DiskPercents != null && snapshot.DiskPercents.Count == settings.SelectedDisks.Count &&
                         multiDiskDisplayCount == expectedMultiDiskDisplayCount && pagingPassed && embeddedDockingPassed &&
+                        defaultResetPassed &&
                         String.Equals(settings.FloatingZOrder, "Normal", StringComparison.OrdinalIgnoreCase) &&
                         settings.PopupShowOnStartup && windowChecksPassed;
                 }

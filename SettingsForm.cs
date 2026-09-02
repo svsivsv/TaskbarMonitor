@@ -9,7 +9,7 @@ namespace TaskbarMonitor
     public sealed class SettingsForm : Form
     {
         private readonly AppHost host;
-        private readonly AppSettings working;
+        private AppSettings working;
         private readonly DataGridView metricGrid;
         private readonly MetricBarControl preview;
         private readonly NumericUpDown intervalInput;
@@ -166,7 +166,7 @@ namespace TaskbarMonitor
             checks.WrapContents = true;
             checks.AutoSize = true;
             autoFitInput = NewCheckBox("공간에 자동 맞춤", working.AutoFit);
-            pauseHiddenInput = NewCheckBox("숨김 시 5초 절전 갱신", working.PauseWhenHidden);
+            pauseHiddenInput = NewCheckBox("숨김 중 측정을 5초 간격으로 절전", working.PauseWhenHidden);
             startupInput = NewCheckBox("Windows 시작 시 자동 실행", working.StartWithWindows);
             showSettingsInput = NewCheckBox("직접 실행 시 설정 먼저 표시", working.ShowSettingsOnManualLaunch);
             seamlessInput = NewCheckBox("작업 표시줄 무배경 결합", working.InsideStyle == "Seamless");
@@ -227,7 +227,7 @@ namespace TaskbarMonitor
             helpText.Text =
                 "권장값은 갱신 1000ms, 그래프 기록 60초입니다. 갱신 값을 낮추면 더 빠르게 반응하지만 CPU 사용량이 늘 수 있습니다.\r\n" +
                 "세 표시 모드는 설정과 우클릭 메뉴에서 언제든 바로 전환할 수 있습니다. 별도 상세 그래프 창은 열지 않습니다.\r\n" +
-                "팝업 크기는 숫자 또는 오른쪽 아래 모서리로 바꿉니다. 위치 고정 중에는 이동·크기 조절이 잠깁니다.";
+                "설정을 조작하는 동안 팝업과 자동 미리보기 갱신을 잠시 멈춰 메뉴·입력창이 닫히지 않게 합니다.";
             helpGroup.Controls.Add(helpText);
             Controls.Add(helpGroup);
 
@@ -244,6 +244,9 @@ namespace TaskbarMonitor
             applyButton.Height = 32;
             Button closeButton = NewButton("닫기", delegate { Close(); });
             closeButton.Height = 32;
+            Button resetButton = NewButton("기본 설정 복원", ResetDefaults);
+            resetButton.Height = 32;
+            helpTip.SetToolTip(resetButton, "설정 화면의 모든 항목을 처음 설치 상태로 되돌립니다. 적용 또는 저장 버튼을 누르기 전에는 실제 설정에 저장되지 않습니다.");
             bottom.Controls.Add(startButton);
             bottom.Controls.Add(applyButton);
             bottom.Controls.Add(closeButton);
@@ -252,6 +255,7 @@ namespace TaskbarMonitor
             applyStatus.ForeColor = Color.FromArgb(0, 110, 80);
             applyStatus.Margin = new Padding(12, 9, 3, 3);
             bottom.Controls.Add(applyStatus);
+            bottom.Controls.Add(resetButton);
             Controls.Add(bottom);
             AcceptButton = startButton;
 
@@ -361,7 +365,7 @@ namespace TaskbarMonitor
             helpTip.SetToolTip(popupHeightInput, "독립 팝업의 세로 크기입니다. 기본 72px이며 48~400px 범위에서 조절할 수 있습니다.");
             helpTip.SetToolTip(floatingOrderInput, "일반: 다른 창을 사용하면 자연스럽게 뒤로 감 / 항상 위: 직접 선택한 경우에만 최상단 / 항상 뒤: 다른 일반 창 뒤에 둡니다.");
             helpTip.SetToolTip(autoFitInput, "날씨 버튼과 시작 버튼 사이의 실제 빈 공간에 맞춰 항목 폭을 자동으로 줄입니다.");
-            helpTip.SetToolTip(pauseHiddenInput, "위젯이 보이지 않을 때 갱신 주기를 5초로 늦춰 CPU 사용량을 줄입니다.");
+            helpTip.SetToolTip(pauseHiddenInput, "위젯과 설정창이 모두 보이지 않을 때만 시스템 측정을 5초에 한 번으로 늦춥니다. 다시 표시하면 선택한 갱신 간격으로 즉시 돌아옵니다.");
             helpTip.SetToolTip(startupInput, "Windows 로그인 후 저장된 설정으로 위젯을 자동 실행합니다.");
             helpTip.SetToolTip(showSettingsInput, "EXE를 직접 실행했을 때 위젯보다 설정창을 먼저 엽니다. Windows 자동 시작에는 적용되지 않습니다.");
             helpTip.SetToolTip(seamlessInput, "패널 배경과 테두리를 투명 처리해 작업표시줄 글자·그래프만 보이게 합니다.");
@@ -538,7 +542,9 @@ namespace TaskbarMonitor
         {
             lastSnapshot = snapshot;
             lastHistory = history;
-            if (dropDownOpen) return;
+            // Do not repaint the live graph while the user is manipulating this
+            // form. Control-triggered RefreshPreview calls still apply instantly.
+            if (dropDownOpen || ContainsFocus || metricGrid.IsCurrentCellInEditMode) return;
             bool inside = working.PositionMode == "Inside";
             preview.SetIntegratedStyle(inside, Color.FromArgb(31, 31, 31));
             preview.Configure(working, snapshot, history);
@@ -564,6 +570,62 @@ namespace TaskbarMonitor
             host.ApplySettings(working, false);
             RefreshPreview();
             applyStatus.Text = "적용됨";
+        }
+
+        private void ResetDefaults(object sender, EventArgs e)
+        {
+            DialogResult result = MessageBox.Show(this,
+                "표시 항목, 색상, 크기, 동작 설정을 처음 설치 상태로 되돌릴까요?\n\n적용 또는 저장 버튼을 누르기 전에는 실제 설정에 저장되지 않습니다.",
+                "기본 설정 복원", MessageBoxButtons.YesNo, MessageBoxIcon.Question,
+                MessageBoxDefaultButton.Button2);
+            if (result != DialogResult.Yes) return;
+
+            working = AppSettings.CreateDefault();
+            LoadControlsFromWorking();
+            applyStatus.Text = "기본값 불러옴 · 적용 전에는 저장되지 않음";
+        }
+
+        private void LoadControlsFromWorking()
+        {
+            loading = true;
+            try
+            {
+                intervalInput.Value = working.UpdateIntervalMs;
+                historyInput.Value = working.HistorySeconds;
+                widthInput.Value = working.MaxWidth;
+                offsetInput.Value = working.TaskbarOffset;
+                insideItemWidthInput.Value = working.InsideItemWidth;
+                insideHeightInput.Value = working.InsideHeight;
+                popupWidthInput.Value = working.PopupWidth;
+                popupHeightInput.Value = working.PopupHeight;
+                opacityInput.Value = working.OpacityPercent;
+                fontInput.Value = (decimal)working.FontSize;
+                positionInput.SelectedIndex = working.PositionMode == "Popup" ? 2 : (working.PositionMode == "Above" ? 1 : 0);
+                fullscreenInput.SelectedIndex = working.FullscreenMode == "Show" ? 1 : (working.FullscreenMode == "ClickThrough" ? 2 : 0);
+                floatingOrderInput.SelectedIndex = String.Equals(working.FloatingZOrder, "Top", StringComparison.OrdinalIgnoreCase) ? 1 :
+                    (String.Equals(working.FloatingZOrder, "Bottom", StringComparison.OrdinalIgnoreCase) ? 2 : 0);
+                autoFitInput.Checked = working.AutoFit;
+                pauseHiddenInput.Checked = working.PauseWhenHidden;
+                startupInput.Checked = working.StartWithWindows;
+                showSettingsInput.Checked = working.ShowSettingsOnManualLaunch;
+                seamlessInput.Checked = String.Equals(working.InsideStyle, "Seamless", StringComparison.OrdinalIgnoreCase);
+                widgetInteractionInput.Checked = working.WidgetInteractionEnabled;
+                overflowPagingInput.Checked = working.OverflowPaging;
+                popupPinnedInput.Checked = working.PopupPinned;
+                popupShowOnStartupInput.Checked = working.PopupShowOnStartup;
+                for (int index = 0; index < diskList.Items.Count; index++)
+                {
+                    string diskName = Convert.ToString(diskList.Items[index]);
+                    diskList.SetItemChecked(index, working.SelectedDisks.Contains(diskName, StringComparer.OrdinalIgnoreCase));
+                }
+            }
+            finally
+            {
+                loading = false;
+            }
+            LoadMetricRows();
+            UpdateModeControlAvailability();
+            RefreshPreview();
         }
 
         public void SyncPopupSize(int width, int height)

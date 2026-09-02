@@ -276,7 +276,10 @@ namespace TaskbarMonitor
 
             if (!paused)
             {
-                bool hiddenAndThrottled = settings.PauseWhenHidden && fullscreen && settings.FullscreenMode == "Hide";
+                bool settingsVisible = settingsForm != null && !settingsForm.IsDisposed && settingsForm.Visible &&
+                    settingsForm.WindowState != FormWindowState.Minimized;
+                bool widgetVisible = monitoring && widgetForm != null && !widgetForm.IsDisposed && widgetForm.Visible;
+                bool hiddenAndThrottled = settings.PauseWhenHidden && !settingsVisible && !widgetVisible;
                 if (!hiddenAndThrottled || (DateTime.UtcNow - lastHiddenSample).TotalSeconds >= 5.0)
                 {
                     snapshot = sampler.Sample(settings);
@@ -288,7 +291,13 @@ namespace TaskbarMonitor
             UpdateTrayTooltip();
             if (widgetForm != null)
             {
-                widgetForm.UpdateData(settings, snapshot, history);
+                bool configurationUiOpen = contextMenu.Visible ||
+                    (settingsForm != null && !settingsForm.IsDisposed && settingsForm.Visible &&
+                     settingsForm.WindowState != FormWindowState.Minimized);
+                // Repainting or reshaping the popup while its menu/settings UI is
+                // in use can dismiss native dropdowns. Freeze only the widget
+                // presentation; sampling and the settings preview continue.
+                if (!configurationUiOpen) widgetForm.UpdateData(settings, snapshot, history);
                 widgetForm.UpdateFullscreenState(fullscreen, monitoring);
             }
             if (settingsForm != null && !settingsForm.IsDisposed)
@@ -468,6 +477,10 @@ namespace TaskbarMonitor
         private bool previousPopupPinned;
         private string previousPositionMode;
         private string previousFloatingOrder;
+        private bool visualStyleInitialized;
+        private bool visualSeamless;
+        private int visualOpacityPercent = -1;
+        private Size visualRegionSize = Size.Empty;
         private Point popupDragStartCursor;
         private Point popupDragStartLocation;
 
@@ -592,23 +605,42 @@ namespace TaskbarMonitor
             previousPositionMode = settings.PositionMode;
             previousFloatingOrder = settings.FloatingZOrder;
             bool seamless = insideMode && embedded && String.Equals(settings.InsideStyle, "Seamless", StringComparison.OrdinalIgnoreCase);
+            ApplyVisualStyle(seamless, settings.OpacityPercent);
+            UpdateClickThrough();
+        }
+
+        private void ApplyVisualStyle(bool seamless, int opacityPercent)
+        {
+            int clampedOpacity = Math.Max(25, Math.Min(100, opacityPercent));
+            bool modeChanged = !visualStyleInitialized || visualSeamless != seamless;
             if (seamless)
             {
-                BackColor = IntegratedBackgroundKey;
-                TransparencyKey = Color.Empty;
-                Opacity = 1.0;
-                Region previous = Region;
-                Region = null;
-                if (previous != null) previous.Dispose();
+                if (modeChanged || visualOpacityPercent != 100)
+                {
+                    BackColor = IntegratedBackgroundKey;
+                    TransparencyKey = Color.Empty;
+                    Opacity = 1.0;
+                    Region previous = Region;
+                    Region = null;
+                    if (previous != null) previous.Dispose();
+                    visualRegionSize = Size.Empty;
+                }
             }
             else
             {
-                TransparencyKey = Color.Empty;
-                BackColor = Color.FromArgb(28, 28, 28);
-                Opacity = Math.Max(0.25, Math.Min(1.0, settings.OpacityPercent / 100.0));
-                ApplyRoundedRegion();
+                if (modeChanged)
+                {
+                    TransparencyKey = Color.Empty;
+                    BackColor = Color.FromArgb(28, 28, 28);
+                }
+                if (modeChanged || visualOpacityPercent != clampedOpacity)
+                    Opacity = clampedOpacity / 100.0;
+                if (modeChanged || visualRegionSize != Size || Region == null)
+                    ApplyRoundedRegion();
             }
-            UpdateClickThrough();
+            visualStyleInitialized = true;
+            visualSeamless = seamless;
+            visualOpacityPercent = seamless ? 100 : clampedOpacity;
         }
 
         public void PositionWidget()
@@ -847,6 +879,7 @@ namespace TaskbarMonitor
                 Region old = Region;
                 Region = new Region(path);
                 if (old != null) old.Dispose();
+                visualRegionSize = Size;
             }
         }
     }
