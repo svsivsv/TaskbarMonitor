@@ -18,9 +18,11 @@ namespace TaskbarMonitor
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
-            if (args.Length > 0 && String.Equals(args[0], "--self-test", StringComparison.OrdinalIgnoreCase))
+            if (args.Length > 0 && (String.Equals(args[0], "--self-test", StringComparison.OrdinalIgnoreCase) ||
+                String.Equals(args[0], "--self-test-window", StringComparison.OrdinalIgnoreCase)))
             {
-                RunSelfTest(args.Length > 1 ? args[1] : null);
+                RunSelfTest(args.Length > 1 ? args[1] : null,
+                    String.Equals(args[0], "--self-test-window", StringComparison.OrdinalIgnoreCase));
                 return;
             }
             if (args.Length > 0 && String.Equals(args[0], "--render-preview", StringComparison.OrdinalIgnoreCase))
@@ -59,7 +61,8 @@ namespace TaskbarMonitor
                 };
 
                 bool startup = args.Length > 0 && String.Equals(args[0], "--startup", StringComparison.OrdinalIgnoreCase);
-                Application.Run(new AppHost(startup));
+                bool forceWidget = args.Length > 0 && String.Equals(args[0], "--show-widget", StringComparison.OrdinalIgnoreCase);
+                Application.Run(new AppHost(startup, forceWidget));
                 GC.KeepAlive(mutex);
             }
         }
@@ -85,7 +88,7 @@ namespace TaskbarMonitor
             }
         }
 
-        private static void RunSelfTest(string outputPath)
+        private static void RunSelfTest(string outputPath, bool exerciseWindow)
         {
             if (String.IsNullOrEmpty(outputPath))
                 outputPath = Path.Combine(Path.GetTempPath(), "TaskbarMonitor-self-test.json");
@@ -119,13 +122,45 @@ namespace TaskbarMonitor
                     IntPtr embeddedWidget = taskbarWindow == IntPtr.Zero ? IntPtr.Zero :
                         NativeMethods.FindWindowEx(taskbarWindow, IntPtr.Zero, null, "Taskbar Monitor");
                     report["embeddedWidgetFound"] = embeddedWidget != IntPtr.Zero;
+                    IntPtr floatingWidget = NativeMethods.FindWindow(null, "Taskbar Monitor");
+                    report["floatingWidgetFound"] = floatingWidget != IntPtr.Zero;
+                    report["floatingWidgetTopMost"] = floatingWidget != IntPtr.Zero &&
+                        (NativeMethods.GetWindowLong(floatingWidget, NativeMethods.GWL_EXSTYLE) & NativeMethods.WS_EX_TOPMOST) != 0;
+                    NativeMethods.RECT floatingRect;
+                    bool windowChecksPassed = !exerciseWindow;
+                    if (floatingWidget != IntPtr.Zero && NativeMethods.GetWindowRect(floatingWidget, out floatingRect))
+                    {
+                        Rectangle floatingBounds = floatingRect.ToRectangle();
+                        report["floatingWidgetBounds"] = floatingBounds.X + "," + floatingBounds.Y + "," +
+                            floatingBounds.Width + "," + floatingBounds.Height;
+                        long packedPoint = ((long)(ushort)(floatingBounds.Bottom - 2) << 16) |
+                            (ushort)(floatingBounds.Right - 2);
+                        report["popupResizeGripHitTest"] = NativeMethods.SendMessage(floatingWidget,
+                            NativeMethods.WM_NCHITTEST, IntPtr.Zero, new IntPtr(packedPoint)).ToInt32() == NativeMethods.HTBOTTOMRIGHT;
+                        if (exerciseWindow)
+                        {
+                            int resizedWidth = Math.Min(1200, Math.Max(200, floatingBounds.Width + 37));
+                            int resizedHeight = Math.Min(400, Math.Max(48, floatingBounds.Height + 23));
+                            NativeMethods.SetWindowPos(floatingWidget, NativeMethods.HWND_TOP, floatingBounds.X, floatingBounds.Y,
+                                resizedWidth, resizedHeight, NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
+                            NativeMethods.SendMessage(floatingWidget, NativeMethods.WM_EXITSIZEMOVE, IntPtr.Zero, IntPtr.Zero);
+                            Thread.Sleep(150);
+                            AppSettings savedSettings = SettingsStore.Load();
+                            report["resizedPopupWidthSaved"] = savedSettings.PopupWidth;
+                            report["resizedPopupHeightSaved"] = savedSettings.PopupHeight;
+                            windowChecksPassed = savedSettings.PopupWidth == resizedWidth && savedSettings.PopupHeight == resizedHeight;
+                            report["windowResizePersistencePassed"] = windowChecksPassed;
+                        }
+                    }
+                    report["defaultFloatingZOrder"] = settings.FloatingZOrder;
                     MetricOption memoryOption = settings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Memory; });
                     memoryOption.ValueFormat = "UsedTotalGb";
                     bool memoryFormatSupported = snapshot.FormatValue(memoryOption, true, null).Contains("/");
                     report["memoryFormatSupported"] = memoryFormatSupported;
                     report["success"] = snapshot.MemoryTotalGb > 0.0 && snapshot.CpuPercent >= 0.0 &&
                         snapshot.CpuPercent <= 100.0 && desktopExcluded && memoryFormatSupported &&
-                        snapshot.DiskPercents != null && snapshot.DiskPercents.Count == settings.SelectedDisks.Count;
+                        snapshot.DiskPercents != null && snapshot.DiskPercents.Count == settings.SelectedDisks.Count &&
+                        String.Equals(settings.FloatingZOrder, "Normal", StringComparison.OrdinalIgnoreCase) && windowChecksPassed;
                 }
             }
             catch (Exception ex)

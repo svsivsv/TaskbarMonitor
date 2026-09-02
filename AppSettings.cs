@@ -84,6 +84,7 @@ namespace TaskbarMonitor
         public int PopupWidth { get; set; }
         public int PopupHeight { get; set; }
         public bool PopupPinned { get; set; }
+        public string FloatingZOrder { get; set; }
         public bool PopupPositionSaved { get; set; }
         public int PopupX { get; set; }
         public int PopupY { get; set; }
@@ -95,7 +96,7 @@ namespace TaskbarMonitor
         public static AppSettings CreateDefault()
         {
             AppSettings value = new AppSettings();
-            value.SettingsVersion = 3;
+            value.SettingsVersion = 4;
             value.UpdateIntervalMs = 1000;
             value.HistorySeconds = 60;
             value.MaxWidth = 560;
@@ -117,6 +118,7 @@ namespace TaskbarMonitor
             value.PopupWidth = 560;
             value.PopupHeight = 90;
             value.PopupPinned = false;
+            value.FloatingZOrder = "Normal";
             value.PopupPositionSaved = false;
             value.SelectedDisks = new List<string> { GetSystemDiskName() };
             value.BackgroundArgb = Color.FromArgb(238, 28, 28, 28).ToArgb();
@@ -173,6 +175,14 @@ namespace TaskbarMonitor
                 }
                 SettingsVersion = 3;
             }
+            if (SettingsVersion < 4)
+            {
+                // Older builds forced every floating widget into the topmost band.
+                // Migrate existing users to normal window ordering unless they
+                // explicitly choose another layer in the new settings screen.
+                FloatingZOrder = "Normal";
+                SettingsVersion = 4;
+            }
             if (Metrics == null) Metrics = new List<MetricOption>();
             foreach (MetricOption defaultMetric in defaults.Metrics)
             {
@@ -190,6 +200,10 @@ namespace TaskbarMonitor
             if (InsideHeight < 20 || InsideHeight > 48) InsideHeight = defaults.InsideHeight;
             if (PopupWidth < 200 || PopupWidth > 1200) PopupWidth = defaults.PopupWidth;
             if (PopupHeight < 48 || PopupHeight > 400) PopupHeight = defaults.PopupHeight;
+            if (!String.Equals(FloatingZOrder, "Normal", StringComparison.OrdinalIgnoreCase) &&
+                !String.Equals(FloatingZOrder, "Top", StringComparison.OrdinalIgnoreCase) &&
+                !String.Equals(FloatingZOrder, "Bottom", StringComparison.OrdinalIgnoreCase))
+                FloatingZOrder = defaults.FloatingZOrder;
             if (String.IsNullOrEmpty(InsideStyle)) InsideStyle = defaults.InsideStyle;
             if (OpacityPercent < 25 || OpacityPercent > 100) OpacityPercent = defaults.OpacityPercent;
             if (FontSize < 7.0f || FontSize > 18.0f) FontSize = defaults.FontSize;

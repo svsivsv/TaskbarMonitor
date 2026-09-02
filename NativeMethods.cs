@@ -12,14 +12,24 @@ namespace TaskbarMonitor
         public const int GWL_EXSTYLE = -20;
         public const int GWL_STYLE = -16;
         public const int WS_EX_TRANSPARENT = 0x00000020;
+        public const int WS_EX_TOPMOST = 0x00000008;
         public const int WS_EX_TOOLWINDOW = 0x00000080;
         public const int WS_EX_NOACTIVATE = 0x08000000;
         public const int WS_CHILD = 0x40000000;
         public const int WS_POPUP = unchecked((int)0x80000000);
+        public const uint SWP_NOSIZE = 0x0001;
+        public const uint SWP_NOMOVE = 0x0002;
+        public const uint SWP_NOZORDER = 0x0004;
         public const uint SWP_NOACTIVATE = 0x0010;
         public const uint SWP_SHOWWINDOW = 0x0040;
         public const uint SWP_FRAMECHANGED = 0x0020;
         public static readonly IntPtr HWND_TOP = IntPtr.Zero;
+        public static readonly IntPtr HWND_BOTTOM = new IntPtr(1);
+        public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        public static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
+        public const int WM_NCHITTEST = 0x0084;
+        public const int WM_EXITSIZEMOVE = 0x0232;
+        public const int HTBOTTOMRIGHT = 17;
         public static readonly int WM_APP_SHOW_SETTINGS = (int)RegisterWindowMessage("TaskbarMonitor.ShowSettings.svsivsv.v1");
         public const string MessageSinkCaption = "TaskbarMonitor.MessageSink.1";
         public static readonly IntPtr HWND_BROADCAST = new IntPtr(0xffff);
@@ -110,6 +120,9 @@ namespace TaskbarMonitor
 
         [DllImport("user32.dll")]
         public static extern bool PostMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr SendMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam);
 
         [DllImport("user32.dll", SetLastError = true)]
         public static extern IntPtr SetParent(IntPtr child, IntPtr newParent);

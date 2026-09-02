@@ -24,6 +24,7 @@ namespace TaskbarMonitor
         private readonly NumericUpDown fontInput;
         private readonly ComboBox positionInput;
         private readonly ComboBox fullscreenInput;
+        private readonly ComboBox floatingOrderInput;
         private readonly CheckBox autoFitInput;
         private readonly CheckBox pauseHiddenInput;
         private readonly CheckBox startupInput;
@@ -54,7 +55,7 @@ namespace TaskbarMonitor
             AutoScaleMode = AutoScaleMode.Dpi;
             Font = new Font("Segoe UI", 9.0f);
             BackColor = Color.FromArgb(245, 245, 245);
-            TopMost = true;
+            TopMost = false;
             helpTip = new ToolTip();
             helpTip.ToolTipTitle = "설정 설명";
             helpTip.ToolTipIcon = ToolTipIcon.Info;
@@ -142,6 +143,10 @@ namespace TaskbarMonitor
             positionInput = NewCombo(new string[] { "작업 표시줄 안쪽", "작업 표시줄 위", "팝업 창 (트레이 클릭)" }, positionIndex);
             int fullscreenIndex = working.FullscreenMode == "Show" ? 1 : (working.FullscreenMode == "ClickThrough" ? 2 : 0);
             fullscreenInput = NewCombo(new string[] { "전체화면에서 숨기기", "항상 표시", "표시 + 클릭 통과" }, fullscreenIndex);
+            int floatingOrderIndex = String.Equals(working.FloatingZOrder, "Top", StringComparison.OrdinalIgnoreCase) ? 1 :
+                (String.Equals(working.FloatingZOrder, "Bottom", StringComparison.OrdinalIgnoreCase) ? 2 : 0);
+            floatingOrderInput = NewCombo(new string[] { "일반 창 순서 (권장)", "항상 위로", "항상 뒤로" }, floatingOrderIndex);
+            floatingOrderInput.Width = 170;
 
             AddSettingRow(table, 0, "갱신 간격 (ms)", intervalInput, "그래프 기록 (초)", historyInput);
             AddSettingRow(table, 1, "최대 너비 (px)", widthInput, "왼쪽 여백 (px)", offsetInput);
@@ -170,9 +175,15 @@ namespace TaskbarMonitor
             checks.Controls.Add(widgetInteractionInput);
             checks.Controls.Add(overflowPagingInput);
             checks.Controls.Add(popupPinnedInput);
-            popupPinnedInput.Enabled = positionInput.SelectedIndex == 2;
+            Label floatingOrderLabel = new Label();
+            floatingOrderLabel.Text = "떠있는 창 순서";
+            floatingOrderLabel.AutoSize = true;
+            floatingOrderLabel.Margin = new Padding(8, 7, 3, 3);
+            checks.Controls.Add(floatingOrderLabel);
+            checks.Controls.Add(floatingOrderInput);
             table.Controls.Add(checks, 0, 6);
             table.SetColumnSpan(checks, 4);
+            UpdateModeControlAvailability();
 
             GroupBox diskGroup = new GroupBox();
             diskGroup.Text = "표시할 디스크 드라이브";
@@ -207,8 +218,8 @@ namespace TaskbarMonitor
             helpText.TextAlign = ContentAlignment.MiddleLeft;
             helpText.Text =
                 "권장값은 갱신 1000ms, 그래프 기록 60초입니다. 갱신 값을 낮추면 더 빠르게 반응하지만 CPU 사용량이 늘 수 있습니다.\r\n" +
-                "최대 너비·왼쪽 여백은 작업표시줄 배치, 팝업 너비·높이는 독립 팝업 창 크기를 조절합니다.\r\n" +
-                "팝업을 끌어 이동한 뒤 '현재 팝업 위치 고정'을 켜서 적용하면 재실행 후에도 그 자리에 고정됩니다. 항목 초과 시 좌우 화살표로 넘깁니다.";
+                "팝업 너비·높이는 숫자로 조절하거나 팝업 오른쪽 아래 모서리를 끌어 바로 바꿀 수 있습니다.\r\n" +
+                "떠있는 창은 기본적으로 일반 창 순서이며, 원할 때만 항상 위·항상 뒤를 선택합니다. 팝업은 트레이 클릭으로만 열고 닫습니다.";
             helpGroup.Controls.Add(helpText);
             Controls.Add(helpGroup);
 
@@ -340,6 +351,7 @@ namespace TaskbarMonitor
             helpTip.SetToolTip(insideHeightInput, "작업표시줄 안쪽 위젯의 높이입니다. 기본 28px이며 작업표시줄 높이를 넘지 않도록 자동 제한됩니다.");
             helpTip.SetToolTip(popupWidthInput, "팝업 창 모드의 가로 크기입니다. 200~1200px 범위에서 조절할 수 있습니다.");
             helpTip.SetToolTip(popupHeightInput, "팝업 창 모드의 세로 크기입니다. 그래프를 크게 보고 싶으면 값을 높이세요.");
+            helpTip.SetToolTip(floatingOrderInput, "일반: 다른 창을 사용하면 자연스럽게 뒤로 감 / 항상 위: 직접 선택한 경우에만 최상단 / 항상 뒤: 다른 일반 창 뒤에 둡니다.");
             helpTip.SetToolTip(autoFitInput, "날씨 버튼과 시작 버튼 사이의 실제 빈 공간에 맞춰 항목 폭을 자동으로 줄입니다.");
             helpTip.SetToolTip(pauseHiddenInput, "위젯이 보이지 않을 때 갱신 주기를 5초로 늦춰 CPU 사용량을 줄입니다.");
             helpTip.SetToolTip(startupInput, "Windows 로그인 후 저장된 설정으로 위젯을 자동 실행합니다.");
@@ -410,10 +422,11 @@ namespace TaskbarMonitor
             {
                 if (positionInput.SelectedIndex == 2 && !widgetInteractionInput.Checked)
                     widgetInteractionInput.Checked = true;
-                popupPinnedInput.Enabled = positionInput.SelectedIndex == 2;
+                UpdateModeControlAvailability();
                 RefreshPreview();
             };
             fullscreenInput.SelectedIndexChanged += delegate { RefreshPreview(); };
+            floatingOrderInput.SelectedIndexChanged += delegate { RefreshPreview(); };
             autoFitInput.CheckedChanged += delegate { RefreshPreview(); };
             widgetInteractionInput.CheckedChanged += delegate { RefreshPreview(); };
             overflowPagingInput.CheckedChanged += delegate { RefreshPreview(); };
@@ -421,6 +434,7 @@ namespace TaskbarMonitor
             diskList.ItemCheck += delegate { BeginInvoke((MethodInvoker)delegate { RefreshPreview(); }); };
             WireDropDownPause(positionInput);
             WireDropDownPause(fullscreenInput);
+            WireDropDownPause(floatingOrderInput);
             metricGrid.EditingControlShowing += MetricGridEditingControlShowing;
         }
 
@@ -477,6 +491,8 @@ namespace TaskbarMonitor
             working.FontSize = (float)fontInput.Value;
             working.PositionMode = positionInput.SelectedIndex == 2 ? "Popup" : (positionInput.SelectedIndex == 1 ? "Above" : "Inside");
             working.FullscreenMode = fullscreenInput.SelectedIndex == 1 ? "Show" : (fullscreenInput.SelectedIndex == 2 ? "ClickThrough" : "Hide");
+            working.FloatingZOrder = floatingOrderInput.SelectedIndex == 1 ? "Top" :
+                (floatingOrderInput.SelectedIndex == 2 ? "Bottom" : "Normal");
             working.AutoFit = autoFitInput.Checked;
             working.PauseWhenHidden = pauseHiddenInput.Checked;
             working.StartWithWindows = startupInput.Checked;
@@ -537,6 +553,34 @@ namespace TaskbarMonitor
             host.ApplySettings(working, false);
             RefreshPreview();
             applyStatus.Text = "적용됨";
+        }
+
+        public void SyncPopupSize(int width, int height)
+        {
+            loading = true;
+            try
+            {
+                working.PopupWidth = Math.Max((int)popupWidthInput.Minimum, Math.Min((int)popupWidthInput.Maximum, width));
+                working.PopupHeight = Math.Max((int)popupHeightInput.Minimum, Math.Min((int)popupHeightInput.Maximum, height));
+                popupWidthInput.Value = working.PopupWidth;
+                popupHeightInput.Value = working.PopupHeight;
+                applyStatus.Text = "팝업 크기 저장됨";
+            }
+            finally
+            {
+                loading = false;
+            }
+            RefreshPreview();
+        }
+
+        private void UpdateModeControlAvailability()
+        {
+            bool popup = positionInput.SelectedIndex == 2;
+            bool floating = positionInput.SelectedIndex != 0;
+            popupWidthInput.Enabled = popup;
+            popupHeightInput.Enabled = popup;
+            popupPinnedInput.Enabled = popup;
+            floatingOrderInput.Enabled = floating;
         }
 
         private void SetAllEnabled(bool value)

@@ -71,10 +71,13 @@ namespace TaskbarMonitor
         private readonly MetricHistory history;
         private MetricSnapshot snapshot;
         private readonly Timer refreshTimer;
-        private readonly Timer contextMenuDismissTimer;
         private readonly NotifyIcon trayIcon;
         private readonly ContextMenuStrip contextMenu;
         private ToolStripMenuItem interactionMenuItem;
+        private ToolStripMenuItem floatingOrderMenuItem;
+        private ToolStripMenuItem floatingOrderNormalItem;
+        private ToolStripMenuItem floatingOrderTopItem;
+        private ToolStripMenuItem floatingOrderBottomItem;
         private readonly MessageSink messageSink;
         private WidgetForm widgetForm;
         private DetailForm detailForm;
@@ -82,9 +85,12 @@ namespace TaskbarMonitor
         private bool monitoring;
         private bool paused;
         private DateTime lastHiddenSample;
-        private DateTime contextMenuLastPointerTime;
 
-        public AppHost(bool startupLaunch)
+        public AppHost(bool startupLaunch) : this(startupLaunch, false)
+        {
+        }
+
+        internal AppHost(bool startupLaunch, bool forceWidgetStart)
         {
             settings = SettingsStore.Load();
             history = new MetricHistory();
@@ -97,12 +103,11 @@ namespace TaskbarMonitor
             messageSink.ShowSettingsRequested += delegate { RequestShowSettings(); };
 
             contextMenu = BuildContextMenu();
-            contextMenu.Opened += delegate
+            contextMenu.Opening += delegate
             {
-                contextMenuLastPointerTime = DateTime.UtcNow;
-                contextMenuDismissTimer.Start();
+                floatingOrderMenuItem.Enabled = !String.Equals(settings.PositionMode, "Inside", StringComparison.OrdinalIgnoreCase);
+                UpdateFloatingOrderMenu();
             };
-            contextMenu.Closed += delegate { contextMenuDismissTimer.Stop(); };
             trayIcon = new NotifyIcon();
             trayIcon.Icon = IconFactory.CreateGraphIcon(Color.FromArgb(0, 183, 195));
             trayIcon.Text = "Taskbar Monitor";
@@ -115,12 +120,15 @@ namespace TaskbarMonitor
             refreshTimer.Tick += RefreshTick;
             refreshTimer.Start();
 
-            contextMenuDismissTimer = new Timer();
-            contextMenuDismissTimer.Interval = 200;
-            contextMenuDismissTimer.Tick += ContextMenuDismissTick;
-
-            if (startupLaunch || !settings.ShowSettingsOnManualLaunch)
+            if (forceWidgetStart)
                 StartMonitor();
+            else if (startupLaunch || !settings.ShowSettingsOnManualLaunch)
+            {
+                // Popup means "open on demand". Do not surprise the user with a
+                // floating window at login or from a background app launch.
+                if (!String.Equals(settings.PositionMode, "Popup", StringComparison.OrdinalIgnoreCase))
+                    StartMonitor();
+            }
             else
                 ShowSettings();
         }
@@ -144,6 +152,15 @@ namespace TaskbarMonitor
             });
             menu.Items.Add("상세 그래프 열기/닫기", null, delegate { ToggleDetail(); });
             menu.Items.Add("위젯 표시/숨기기", null, delegate { ToggleWidget(); });
+            floatingOrderMenuItem = new ToolStripMenuItem("떠있는 창 앞뒤 순서");
+            floatingOrderNormalItem = new ToolStripMenuItem("일반 창 순서 (권장)", null, delegate { SetFloatingOrder("Normal"); });
+            floatingOrderTopItem = new ToolStripMenuItem("항상 위로 보내기", null, delegate { SetFloatingOrder("Top"); });
+            floatingOrderBottomItem = new ToolStripMenuItem("항상 뒤로 보내기", null, delegate { SetFloatingOrder("Bottom"); });
+            floatingOrderMenuItem.DropDownItems.Add(floatingOrderNormalItem);
+            floatingOrderMenuItem.DropDownItems.Add(floatingOrderTopItem);
+            floatingOrderMenuItem.DropDownItems.Add(floatingOrderBottomItem);
+            menu.Items.Add(floatingOrderMenuItem);
+            UpdateFloatingOrderMenu();
             interactionMenuItem = new ToolStripMenuItem("위젯 전체 영역 클릭 인식");
             interactionMenuItem.Checked = settings.WidgetInteractionEnabled;
             interactionMenuItem.Click += delegate
@@ -165,6 +182,22 @@ namespace TaskbarMonitor
             return menu;
         }
 
+        private void SetFloatingOrder(string order)
+        {
+            AppSettings updated = settings.Clone();
+            updated.FloatingZOrder = order;
+            ApplySettings(updated, false);
+            UpdateFloatingOrderMenu();
+        }
+
+        private void UpdateFloatingOrderMenu()
+        {
+            if (floatingOrderNormalItem == null) return;
+            floatingOrderNormalItem.Checked = String.Equals(settings.FloatingZOrder, "Normal", StringComparison.OrdinalIgnoreCase);
+            floatingOrderTopItem.Checked = String.Equals(settings.FloatingZOrder, "Top", StringComparison.OrdinalIgnoreCase);
+            floatingOrderBottomItem.Checked = String.Equals(settings.FloatingZOrder, "Bottom", StringComparison.OrdinalIgnoreCase);
+        }
+
         public void RequestShowSettings()
         {
             if (contextMenu != null && contextMenu.Visible) contextMenu.Close();
@@ -180,24 +213,6 @@ namespace TaskbarMonitor
                 return;
             }
             contextMenu.Show(source, location);
-        }
-
-        private void ContextMenuDismissTick(object sender, EventArgs e)
-        {
-            if (!contextMenu.Visible)
-            {
-                contextMenuDismissTimer.Stop();
-                return;
-            }
-            Rectangle activeBounds = contextMenu.Bounds;
-            activeBounds.Inflate(10, 10);
-            if (activeBounds.Contains(Cursor.Position))
-            {
-                contextMenuLastPointerTime = DateTime.UtcNow;
-                return;
-            }
-            if ((DateTime.UtcNow - contextMenuLastPointerTime).TotalMilliseconds >= 900)
-                contextMenu.Close();
         }
 
         private void TrayIconMouseClick(object sender, MouseEventArgs e)
@@ -273,6 +288,7 @@ namespace TaskbarMonitor
             }
             settings = newSettings.Clone();
             if (interactionMenuItem != null) interactionMenuItem.Checked = settings.WidgetInteractionEnabled;
+            UpdateFloatingOrderMenu();
             SettingsStore.Save(settings);
             SettingsStore.ApplyStartupSetting(settings.StartWithWindows);
             history.Configure(settings.HistorySeconds, settings.UpdateIntervalMs);
@@ -290,14 +306,23 @@ namespace TaskbarMonitor
             if (startMonitor) StartMonitor();
         }
 
+        public void SavePopupSize(Size size)
+        {
+            if (!String.Equals(settings.PositionMode, "Popup", StringComparison.OrdinalIgnoreCase)) return;
+            settings.PopupWidth = Math.Max(200, Math.Min(1200, size.Width));
+            settings.PopupHeight = Math.Max(48, Math.Min(400, size.Height));
+            SettingsStore.Save(settings);
+            if (settingsForm != null && !settingsForm.IsDisposed)
+                settingsForm.SyncPopupSize(settings.PopupWidth, settings.PopupHeight);
+        }
+
         public void StartMonitor()
         {
             if (widgetForm == null || widgetForm.IsDisposed)
                 widgetForm = new WidgetForm(this);
             monitoring = true;
             widgetForm.UpdateData(settings, snapshot, history);
-            widgetForm.PositionWidget();
-            if (!widgetForm.Visible) widgetForm.Show();
+            widgetForm.ShowFromHost();
         }
 
         public void ToggleWidget()
@@ -339,6 +364,7 @@ namespace TaskbarMonitor
 
         public void ShowSettings()
         {
+            if (widgetForm != null && !widgetForm.IsDisposed) widgetForm.SetSettingsOpen(true);
             if (settingsForm != null && !settingsForm.IsDisposed)
             {
                 PositionSettingsForm(settingsForm);
@@ -348,7 +374,11 @@ namespace TaskbarMonitor
                 return;
             }
             settingsForm = new SettingsForm(this, settings.Clone());
-            settingsForm.FormClosed += delegate { settingsForm = null; };
+            settingsForm.FormClosed += delegate
+            {
+                settingsForm = null;
+                if (widgetForm != null && !widgetForm.IsDisposed) widgetForm.SetSettingsOpen(false);
+            };
             PositionSettingsForm(settingsForm);
             settingsForm.Show();
             ActivateSettingsForm(settingsForm);
@@ -366,7 +396,9 @@ namespace TaskbarMonitor
 
         private static void ActivateSettingsForm(Form form)
         {
-            form.TopMost = true;
+            form.TopMost = false;
+            NativeMethods.SetWindowPos(form.Handle, NativeMethods.HWND_TOP, 0, 0, 0, 0,
+                NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_SHOWWINDOW);
             form.BringToFront();
             form.Activate();
             NativeMethods.SetForegroundWindow(form.Handle);
@@ -386,8 +418,6 @@ namespace TaskbarMonitor
         protected override void ExitThreadCore()
         {
             refreshTimer.Stop();
-            contextMenuDismissTimer.Stop();
-            contextMenuDismissTimer.Dispose();
             trayIcon.Visible = false;
             trayIcon.Dispose();
             contextMenu.Dispose();
@@ -407,16 +437,19 @@ namespace TaskbarMonitor
         private readonly MetricBarControl bar;
         private bool clickThrough;
         private bool fullscreenClickThrough;
+        private bool fullscreenActive;
+        private bool settingsOpen;
         private bool embedded;
         private IntPtr taskbarParent;
         private bool hiddenForFullscreen;
-        private bool hiddenForShellFlyout;
         private bool hiddenByUser;
         private bool popupDragging;
         private bool popupDragMoved;
         private bool consumePopupClick;
         private bool manualPopupLocation;
         private bool previousPopupPinned;
+        private string previousPositionMode;
+        private string previousFloatingOrder;
         private Point popupDragStartCursor;
         private Point popupDragStartLocation;
 
@@ -427,7 +460,7 @@ namespace TaskbarMonitor
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
-            TopMost = true;
+            TopMost = false;
             BackColor = Color.FromArgb(28, 28, 28);
             bar = new MetricBarControl();
             bar.Dock = DockStyle.Fill;
@@ -453,6 +486,24 @@ namespace TaskbarMonitor
 
         protected override void WndProc(ref Message message)
         {
+            if (message.Msg == NativeMethods.WM_NCHITTEST && IsResizablePopup())
+            {
+                long packed = message.LParam.ToInt64();
+                Point cursor = new Point(unchecked((short)(packed & 0xffff)), unchecked((short)((packed >> 16) & 0xffff)));
+                Rectangle bounds = GetScreenBounds();
+                if (cursor.X >= bounds.Right - 14 && cursor.Y >= bounds.Bottom - 14)
+                {
+                    message.Result = new IntPtr(NativeMethods.HTBOTTOMRIGHT);
+                    return;
+                }
+            }
+            if (message.Msg == NativeMethods.WM_EXITSIZEMOVE && IsPopupMode())
+            {
+                base.WndProc(ref message);
+                host.SavePopupSize(Size);
+                ApplyRoundedRegion();
+                return;
+            }
             if (message.Msg == NativeMethods.WM_APP_SHOW_SETTINGS)
             {
                 host.RequestShowSettings();
@@ -520,6 +571,8 @@ namespace TaskbarMonitor
         {
             bool insideMode = String.Equals(settings.PositionMode, "Inside", StringComparison.OrdinalIgnoreCase);
             bool popupMode = String.Equals(settings.PositionMode, "Popup", StringComparison.OrdinalIgnoreCase);
+            bool layerChanged = !String.Equals(previousPositionMode, settings.PositionMode, StringComparison.OrdinalIgnoreCase) ||
+                !String.Equals(previousFloatingOrder, settings.FloatingZOrder, StringComparison.OrdinalIgnoreCase);
             if (!popupMode)
             {
                 hiddenByUser = false;
@@ -530,7 +583,10 @@ namespace TaskbarMonitor
             bar.SetIntegratedStyle(insideMode, IntegratedBackgroundKey);
             bar.Configure(settings, snapshot, history);
             PositionWidget();
+            if (layerChanged) ApplyFloatingWindowOrder(false);
             previousPopupPinned = settings.PopupPinned;
+            previousPositionMode = settings.PositionMode;
+            previousFloatingOrder = settings.FloatingZOrder;
             bool seamless = insideMode && embedded && String.Equals(settings.InsideStyle, "Seamless", StringComparison.OrdinalIgnoreCase);
             if (seamless)
             {
@@ -594,7 +650,7 @@ namespace TaskbarMonitor
                     if (x + width > screen.Right - 8) x = Math.Max(screen.Left + 8, screen.Right - width - 8);
                 }
                 NativeMethods.SetWindowPos(Handle, NativeMethods.HWND_TOP, x, y, Math.Max(160, width), Math.Max(28, height),
-                    NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_FRAMECHANGED);
+                    NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_NOZORDER | NativeMethods.SWP_FRAMECHANGED);
             }
             else
             {
@@ -610,25 +666,28 @@ namespace TaskbarMonitor
                 if (embedded)
                 {
                     NativeMethods.SetWindowPos(Handle, NativeMethods.HWND_TOP, x, y, Math.Max(160, width), Math.Max(28, height),
-                        NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_FRAMECHANGED);
+                        NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_NOZORDER | NativeMethods.SWP_FRAMECHANGED);
                 }
                 else
                 {
                     int screenX = taskbar.Left + x;
                     int screenY = taskbar.Top + y;
                     NativeMethods.SetWindowPos(Handle, NativeMethods.HWND_TOP, screenX, screenY, Math.Max(160, width), Math.Max(28, height),
-                        NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_FRAMECHANGED);
+                        NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_NOZORDER | NativeMethods.SWP_FRAMECHANGED);
                 }
             }
         }
 
         public void UpdateFullscreenState(bool fullscreen, bool monitoring)
         {
+            bool fullscreenChanged = fullscreenActive != fullscreen;
+            fullscreenActive = fullscreen;
             string mode = host.Settings.FullscreenMode;
             hiddenForFullscreen = fullscreen && String.Equals(mode, "Hide", StringComparison.OrdinalIgnoreCase);
             fullscreenClickThrough = fullscreen && String.Equals(mode, "ClickThrough", StringComparison.OrdinalIgnoreCase);
             UpdateClickThrough();
             ApplyAutomaticVisibility(monitoring);
+            if (fullscreenChanged) ApplyFloatingWindowOrder(false);
         }
 
         private void UpdateClickThrough()
@@ -643,14 +702,18 @@ namespace TaskbarMonitor
 
         public void UpdateShellFlyoutState(bool shellFlyoutForeground, bool monitoring)
         {
-            hiddenForShellFlyout = shellFlyoutForeground && !embedded;
-            ApplyAutomaticVisibility(monitoring);
+            // A search/start flyout must not toggle a popup's visibility. Normal
+            // Windows z-order now lets the shell cover it without hide/show flicker.
         }
 
         private void ApplyAutomaticVisibility(bool monitoring)
         {
-            bool shouldShow = monitoring && !hiddenByUser && !hiddenForFullscreen && !hiddenForShellFlyout;
-            if (shouldShow && !Visible) Show();
+            bool shouldShow = monitoring && !hiddenByUser && !hiddenForFullscreen;
+            if (shouldShow && !Visible)
+            {
+                Show();
+                ApplyFloatingWindowOrder(false);
+            }
             else if (!shouldShow && Visible) Hide();
         }
 
@@ -660,15 +723,51 @@ namespace TaskbarMonitor
             if (!hiddenByUser) PositionWidget();
             ApplyAutomaticVisibility(true);
             if (!hiddenByUser)
-            {
-                BringToFront();
-                NativeMethods.SetForegroundWindow(Handle);
-            }
+                ApplyFloatingWindowOrder(true);
+        }
+
+        public void ShowFromHost()
+        {
+            hiddenByUser = false;
+            PositionWidget();
+            ApplyAutomaticVisibility(true);
+            if (Visible) ApplyFloatingWindowOrder(true);
+        }
+
+        public void ApplyFloatingWindowOrder(bool bringNormalForward)
+        {
+            if (embedded || String.Equals(host.Settings.PositionMode, "Inside", StringComparison.OrdinalIgnoreCase)) return;
+            string order = host.Settings.FloatingZOrder ?? "Normal";
+            IntPtr insertAfter;
+            if (settingsOpen)
+                insertAfter = NativeMethods.HWND_NOTOPMOST;
+            else if (fullscreenActive && String.Equals(host.Settings.FullscreenMode, "Show", StringComparison.OrdinalIgnoreCase))
+                insertAfter = NativeMethods.HWND_TOPMOST;
+            else if (String.Equals(order, "Top", StringComparison.OrdinalIgnoreCase))
+                insertAfter = NativeMethods.HWND_TOPMOST;
+            else if (String.Equals(order, "Bottom", StringComparison.OrdinalIgnoreCase))
+                insertAfter = NativeMethods.HWND_BOTTOM;
+            else
+                insertAfter = bringNormalForward ? NativeMethods.HWND_TOP : NativeMethods.HWND_NOTOPMOST;
+            NativeMethods.SetWindowPos(Handle, insertAfter, 0, 0, 0, 0,
+                NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE |
+                (Visible ? NativeMethods.SWP_SHOWWINDOW : 0));
+        }
+
+        public void SetSettingsOpen(bool open)
+        {
+            settingsOpen = open;
+            ApplyFloatingWindowOrder(false);
         }
 
         private bool IsPopupMode()
         {
             return String.Equals(host.Settings.PositionMode, "Popup", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool IsResizablePopup()
+        {
+            return IsPopupMode() && host.Settings.WidgetInteractionEnabled && !host.Settings.PopupPinned;
         }
 
         private static Rectangle ClampPopupBounds(Rectangle desired)
@@ -688,7 +787,7 @@ namespace TaskbarMonitor
             {
                 embedded = false;
                 taskbarParent = IntPtr.Zero;
-                TopMost = true;
+                TopMost = false;
                 return;
             }
             if (embedded && taskbarParent == taskbarHandle && NativeMethods.GetParent(Handle) == taskbarHandle) return;
@@ -701,14 +800,16 @@ namespace TaskbarMonitor
             NativeMethods.SetWindowLong(Handle, NativeMethods.GWL_STYLE, style);
             embedded = NativeMethods.GetParent(Handle) == taskbarHandle;
             taskbarParent = embedded ? taskbarHandle : IntPtr.Zero;
-            if (!embedded) TopMost = true;
+            if (embedded)
+                NativeMethods.SetWindowPos(Handle, NativeMethods.HWND_TOP, 0, 0, 0, 0,
+                    NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE);
         }
 
         private void DetachFromTaskbar()
         {
             if (!embedded)
             {
-                TopMost = true;
+                TopMost = false;
                 return;
             }
             NativeMethods.SetParent(Handle, IntPtr.Zero);
@@ -718,7 +819,10 @@ namespace TaskbarMonitor
             NativeMethods.SetWindowLong(Handle, NativeMethods.GWL_STYLE, style);
             embedded = false;
             taskbarParent = IntPtr.Zero;
-            TopMost = true;
+            TopMost = false;
+            NativeMethods.SetWindowPos(Handle, NativeMethods.HWND_NOTOPMOST, 0, 0, 0, 0,
+                NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE |
+                NativeMethods.SWP_FRAMECHANGED);
         }
 
         public Rectangle GetScreenBounds()
@@ -762,7 +866,7 @@ namespace TaskbarMonitor
             FormBorderStyle = FormBorderStyle.SizableToolWindow;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
-            TopMost = true;
+            TopMost = false;
             MinimumSize = new Size(390, 240);
             Size = new Size(560, 520);
             BackColor = Color.FromArgb(28, 28, 28);
