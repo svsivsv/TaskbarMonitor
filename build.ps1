@@ -40,7 +40,7 @@ $compilerOptions = @(
 if ($DebugBuild) {
     $compilerOptions += @('/debug:full', '/optimize-')
 } else {
-    $compilerOptions += @('/debug:pdbonly', '/optimize+')
+    $compilerOptions += @('/debug-', '/optimize+')
 }
 
 & $compilerPath @compilerOptions @sourceFiles
