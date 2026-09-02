@@ -84,6 +84,7 @@ namespace TaskbarMonitor
         private SettingsForm settingsForm;
         private bool monitoring;
         private bool paused;
+        private bool showSettingsAfterMenuClose;
         private DateTime lastHiddenSample;
 
         public AppHost(bool startupLaunch) : this(startupLaunch, false)
@@ -107,6 +108,19 @@ namespace TaskbarMonitor
             {
                 floatingOrderMenuItem.Enabled = !String.Equals(settings.PositionMode, "Inside", StringComparison.OrdinalIgnoreCase);
                 UpdateFloatingOrderMenu();
+            };
+            contextMenu.Closed += delegate
+            {
+                if (!showSettingsAfterMenuClose) return;
+                showSettingsAfterMenuClose = false;
+                try
+                {
+                    contextMenu.BeginInvoke((MethodInvoker)delegate { ShowSettings(); });
+                }
+                catch
+                {
+                    ShowSettings();
+                }
             };
             trayIcon = new NotifyIcon();
             trayIcon.Icon = IconFactory.CreateGraphIcon(Color.FromArgb(0, 183, 195));
@@ -199,7 +213,12 @@ namespace TaskbarMonitor
 
         public void RequestShowSettings()
         {
-            if (contextMenu != null && contextMenu.Visible) contextMenu.Close();
+            if (contextMenu != null && contextMenu.Visible)
+            {
+                showSettingsAfterMenuClose = true;
+                contextMenu.Close();
+                return;
+            }
             ShowSettings();
         }
 
@@ -395,8 +414,16 @@ namespace TaskbarMonitor
 
         private static void ActivateSettingsForm(Form form)
         {
+            if (form == null || form.IsDisposed) return;
             form.TopMost = false;
-            NativeMethods.SetWindowPos(form.Handle, NativeMethods.HWND_TOP, 0, 0, 0, 0,
+            // A context menu is a no-activate tool window, so Windows can reject a
+            // plain foreground request and leave the settings form behind another
+            // application. Pulse the form through TOPMOST once, immediately return
+            // it to normal z-order, and then request foreground activation.
+            NativeMethods.SetWindowPos(form.Handle, NativeMethods.HWND_TOPMOST, 0, 0, 0, 0,
+                NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE |
+                NativeMethods.SWP_SHOWWINDOW);
+            NativeMethods.SetWindowPos(form.Handle, NativeMethods.HWND_NOTOPMOST, 0, 0, 0, 0,
                 NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_SHOWWINDOW);
             form.BringToFront();
             form.Activate();
@@ -431,6 +458,7 @@ namespace TaskbarMonitor
 
     public sealed class WidgetForm : Form
     {
+        private const int PopupResizeGripHitSize = 34;
         private static readonly Color IntegratedBackgroundKey = Color.FromArgb(31, 31, 31);
         private readonly AppHost host;
         private readonly MetricBarControl bar;
@@ -449,6 +477,7 @@ namespace TaskbarMonitor
         private bool previousPopupPinned;
         private string previousPositionMode;
         private string previousFloatingOrder;
+        private DateTime lastEmbeddedStackRefresh;
         private Point popupDragStartCursor;
         private Point popupDragStartLocation;
 
@@ -490,7 +519,8 @@ namespace TaskbarMonitor
                 long packed = message.LParam.ToInt64();
                 Point cursor = new Point(unchecked((short)(packed & 0xffff)), unchecked((short)((packed >> 16) & 0xffff)));
                 Rectangle bounds = GetScreenBounds();
-                if (cursor.X >= bounds.Right - 14 && cursor.Y >= bounds.Bottom - 14)
+                if (cursor.X >= bounds.Right - PopupResizeGripHitSize &&
+                    cursor.Y >= bounds.Bottom - PopupResizeGripHitSize)
                 {
                     message.Result = new IntPtr(NativeMethods.HTBOTTOMRIGHT);
                     return;
@@ -648,8 +678,7 @@ namespace TaskbarMonitor
                     y = taskbar.Top - height - 4;
                     if (x + width > screen.Right - 8) x = Math.Max(screen.Left + 8, screen.Right - width - 8);
                 }
-                NativeMethods.SetWindowPos(Handle, NativeMethods.HWND_TOP, x, y, Math.Max(160, width), Math.Max(28, height),
-                    NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_NOZORDER | NativeMethods.SWP_FRAMECHANGED);
+                SetPositionIfNeeded(x, y, Math.Max(160, width), Math.Max(28, height), false);
             }
             else
             {
@@ -664,17 +693,32 @@ namespace TaskbarMonitor
                 y = Math.Max(2, (taskbar.Height - height) / 2);
                 if (embedded)
                 {
-                    NativeMethods.SetWindowPos(Handle, NativeMethods.HWND_TOP, x, y, Math.Max(160, width), Math.Max(28, height),
-                        NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_FRAMECHANGED);
+                    SetPositionIfNeeded(x, y, Math.Max(160, width), Math.Max(28, height), true);
                 }
                 else
                 {
                     int screenX = taskbar.Left + x;
                     int screenY = taskbar.Top + y;
-                    NativeMethods.SetWindowPos(Handle, NativeMethods.HWND_TOP, screenX, screenY, Math.Max(160, width), Math.Max(28, height),
-                        NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_NOZORDER | NativeMethods.SWP_FRAMECHANGED);
+                    SetPositionIfNeeded(screenX, screenY, Math.Max(160, width), Math.Max(28, height), false);
                 }
             }
+        }
+
+        private void SetPositionIfNeeded(int x, int y, int width, int height, bool keepAboveTaskbarChildren)
+        {
+            Rectangle desired = new Rectangle(x, y, width, height);
+            bool boundsChanged = Bounds != desired;
+            bool menuOrSettingsOpen = host.SharedContextMenu.Visible || settingsOpen;
+            bool refreshEmbeddedStack = keepAboveTaskbarChildren && !menuOrSettingsOpen &&
+                (DateTime.UtcNow - lastEmbeddedStackRefresh).TotalSeconds >= 10.0;
+            if (!boundsChanged && !refreshEmbeddedStack) return;
+
+            uint flags = NativeMethods.SWP_NOACTIVATE;
+            if (!boundsChanged) flags |= NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE;
+            if (!keepAboveTaskbarChildren || menuOrSettingsOpen) flags |= NativeMethods.SWP_NOZORDER;
+            NativeMethods.SetWindowPos(Handle, NativeMethods.HWND_TOP, x, y, width, height, flags);
+            if (keepAboveTaskbarChildren && !menuOrSettingsOpen)
+                lastEmbeddedStackRefresh = DateTime.UtcNow;
         }
 
         public void UpdateFullscreenState(bool fullscreen, bool monitoring)

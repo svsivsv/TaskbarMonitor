@@ -195,11 +195,15 @@ namespace TaskbarMonitor
 
         private void DrawResizeGrip(Graphics graphics, Color foreground)
         {
-            using (Pen pen = new Pen(Color.FromArgb(150, foreground), 1.0f))
+            Rectangle grip = new Rectangle(Math.Max(0, Width - 34), Math.Max(0, Height - 30),
+                Math.Min(33, Width), Math.Min(29, Height));
+            using (Brush background = new SolidBrush(Color.FromArgb(55, foreground)))
+                graphics.FillRectangle(background, grip);
+            using (Pen pen = new Pen(Color.FromArgb(210, foreground), 1.6f))
             {
-                graphics.DrawLine(pen, Width - 5, Height - 12, Width - 5, Height - 5);
-                graphics.DrawLine(pen, Width - 9, Height - 8, Width - 9, Height - 5);
-                graphics.DrawLine(pen, Width - 13, Height - 5, Width - 5, Height - 5);
+                graphics.DrawLine(pen, Width - 25, Height - 5, Width - 5, Height - 25);
+                graphics.DrawLine(pen, Width - 18, Height - 5, Width - 5, Height - 18);
+                graphics.DrawLine(pen, Width - 11, Height - 5, Width - 5, Height - 11);
             }
         }
 

@@ -143,17 +143,29 @@ namespace TaskbarMonitor
                             NativeMethods.WM_NCHITTEST, IntPtr.Zero, new IntPtr(packedPoint)).ToInt32() == NativeMethods.HTBOTTOMRIGHT;
                         if (exerciseWindow)
                         {
-                            int resizedWidth = Math.Min(1200, Math.Max(200, floatingBounds.Width + 37));
-                            int resizedHeight = Math.Min(400, Math.Max(48, floatingBounds.Height + 23));
-                            NativeMethods.SetWindowPos(floatingWidget, NativeMethods.HWND_TOP, floatingBounds.X, floatingBounds.Y,
-                                resizedWidth, resizedHeight, NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
-                            NativeMethods.SendMessage(floatingWidget, NativeMethods.WM_EXITSIZEMOVE, IntPtr.Zero, IntPtr.Zero);
-                            Thread.Sleep(150);
-                            AppSettings savedSettings = SettingsStore.Load();
-                            report["resizedPopupWidthSaved"] = savedSettings.PopupWidth;
-                            report["resizedPopupHeightSaved"] = savedSettings.PopupHeight;
-                            windowChecksPassed = savedSettings.PopupWidth == resizedWidth && savedSettings.PopupHeight == resizedHeight;
-                            report["windowResizePersistencePassed"] = windowChecksPassed;
+                            AppSettings settingsBeforeResizeTest = SettingsStore.Load();
+                            try
+                            {
+                                int resizedWidth = Math.Min(1200, Math.Max(200, floatingBounds.Width + 37));
+                                int resizedHeight = Math.Min(400, Math.Max(48, floatingBounds.Height + 23));
+                                NativeMethods.SetWindowPos(floatingWidget, NativeMethods.HWND_TOP, floatingBounds.X, floatingBounds.Y,
+                                    resizedWidth, resizedHeight, NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
+                                NativeMethods.SendMessage(floatingWidget, NativeMethods.WM_EXITSIZEMOVE, IntPtr.Zero, IntPtr.Zero);
+                                Thread.Sleep(150);
+                                AppSettings savedSettings = SettingsStore.Load();
+                                report["resizedPopupWidthSaved"] = savedSettings.PopupWidth;
+                                report["resizedPopupHeightSaved"] = savedSettings.PopupHeight;
+                                windowChecksPassed = savedSettings.PopupWidth == resizedWidth && savedSettings.PopupHeight == resizedHeight;
+                                report["windowResizePersistencePassed"] = windowChecksPassed;
+                            }
+                            finally
+                            {
+                                NativeMethods.SetWindowPos(floatingWidget, NativeMethods.HWND_TOP, floatingBounds.X, floatingBounds.Y,
+                                    floatingBounds.Width, floatingBounds.Height,
+                                    NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
+                                NativeMethods.SendMessage(floatingWidget, NativeMethods.WM_EXITSIZEMOVE, IntPtr.Zero, IntPtr.Zero);
+                                SettingsStore.Save(settingsBeforeResizeTest);
+                            }
                         }
                     }
                     report["defaultFloatingZOrder"] = settings.FloatingZOrder;
