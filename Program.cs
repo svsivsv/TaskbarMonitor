@@ -122,8 +122,10 @@ namespace TaskbarMonitor
                     IntPtr embeddedWidget = taskbarWindow == IntPtr.Zero ? IntPtr.Zero :
                         NativeMethods.FindWindowEx(taskbarWindow, IntPtr.Zero, null, "Taskbar Monitor");
                     report["embeddedWidgetFound"] = embeddedWidget != IntPtr.Zero;
+                    report["embeddedWidgetVisible"] = embeddedWidget != IntPtr.Zero && NativeMethods.IsWindowVisible(embeddedWidget);
                     IntPtr floatingWidget = NativeMethods.FindWindow(null, "Taskbar Monitor");
                     report["floatingWidgetFound"] = floatingWidget != IntPtr.Zero;
+                    report["floatingWidgetVisible"] = floatingWidget != IntPtr.Zero && NativeMethods.IsWindowVisible(floatingWidget);
                     report["floatingWidgetTopMost"] = floatingWidget != IntPtr.Zero &&
                         (NativeMethods.GetWindowLong(floatingWidget, NativeMethods.GWL_EXSTYLE) & NativeMethods.WS_EX_TOPMOST) != 0;
                     NativeMethods.RECT floatingRect;
@@ -153,6 +155,7 @@ namespace TaskbarMonitor
                         }
                     }
                     report["defaultFloatingZOrder"] = settings.FloatingZOrder;
+                    report["defaultPopupShowOnStartup"] = settings.PopupShowOnStartup;
                     MetricOption memoryOption = settings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Memory; });
                     memoryOption.ValueFormat = "UsedTotalGb";
                     bool memoryFormatSupported = snapshot.FormatValue(memoryOption, true, null).Contains("/");
@@ -160,7 +163,8 @@ namespace TaskbarMonitor
                     report["success"] = snapshot.MemoryTotalGb > 0.0 && snapshot.CpuPercent >= 0.0 &&
                         snapshot.CpuPercent <= 100.0 && desktopExcluded && memoryFormatSupported &&
                         snapshot.DiskPercents != null && snapshot.DiskPercents.Count == settings.SelectedDisks.Count &&
-                        String.Equals(settings.FloatingZOrder, "Normal", StringComparison.OrdinalIgnoreCase) && windowChecksPassed;
+                        String.Equals(settings.FloatingZOrder, "Normal", StringComparison.OrdinalIgnoreCase) &&
+                        settings.PopupShowOnStartup && windowChecksPassed;
                 }
             }
             catch (Exception ex)

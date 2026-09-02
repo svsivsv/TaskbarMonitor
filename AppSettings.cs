@@ -84,6 +84,7 @@ namespace TaskbarMonitor
         public int PopupWidth { get; set; }
         public int PopupHeight { get; set; }
         public bool PopupPinned { get; set; }
+        public bool PopupShowOnStartup { get; set; }
         public string FloatingZOrder { get; set; }
         public bool PopupPositionSaved { get; set; }
         public int PopupX { get; set; }
@@ -96,7 +97,7 @@ namespace TaskbarMonitor
         public static AppSettings CreateDefault()
         {
             AppSettings value = new AppSettings();
-            value.SettingsVersion = 4;
+            value.SettingsVersion = 5;
             value.UpdateIntervalMs = 1000;
             value.HistorySeconds = 60;
             value.MaxWidth = 560;
@@ -118,6 +119,7 @@ namespace TaskbarMonitor
             value.PopupWidth = 560;
             value.PopupHeight = 90;
             value.PopupPinned = false;
+            value.PopupShowOnStartup = true;
             value.FloatingZOrder = "Normal";
             value.PopupPositionSaved = false;
             value.SelectedDisks = new List<string> { GetSystemDiskName() };
@@ -182,6 +184,13 @@ namespace TaskbarMonitor
                 // explicitly choose another layer in the new settings screen.
                 FloatingZOrder = "Normal";
                 SettingsVersion = 4;
+            }
+            if (SettingsVersion < 5)
+            {
+                // Preserve the original expectation that choosing popup mode
+                // still displays it after app/login start. Users can opt out.
+                PopupShowOnStartup = true;
+                SettingsVersion = 5;
             }
             if (Metrics == null) Metrics = new List<MetricOption>();
             foreach (MetricOption defaultMetric in defaults.Metrics)

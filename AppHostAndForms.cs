@@ -124,9 +124,8 @@ namespace TaskbarMonitor
                 StartMonitor();
             else if (startupLaunch || !settings.ShowSettingsOnManualLaunch)
             {
-                // Popup means "open on demand". Do not surprise the user with a
-                // floating window at login or from a background app launch.
-                if (!String.Equals(settings.PositionMode, "Popup", StringComparison.OrdinalIgnoreCase))
+                if (!String.Equals(settings.PositionMode, "Popup", StringComparison.OrdinalIgnoreCase) ||
+                    settings.PopupShowOnStartup)
                     StartMonitor();
             }
             else
