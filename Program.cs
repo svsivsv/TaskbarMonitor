@@ -11,6 +11,9 @@ namespace TaskbarMonitor
 {
     internal static class Program
     {
+        private const long MaximumErrorLogBytes = 512 * 1024;
+        private static readonly object ErrorLogLock = new object();
+
         [STAThread]
         private static void Main(string[] args)
         {
@@ -69,19 +72,31 @@ namespace TaskbarMonitor
 
         private static void ReportError(Exception exception)
         {
-            try
-            {
-                Directory.CreateDirectory(SettingsStore.SettingsDirectory);
-                File.AppendAllText(Path.Combine(SettingsStore.SettingsDirectory, "error.log"),
-                    DateTime.Now.ToString("s") + Environment.NewLine + exception + Environment.NewLine + Environment.NewLine);
-            }
-            catch
-            {
-            }
+            LogError(exception);
             try
             {
                 MessageBox.Show("예상하지 못한 오류가 발생했습니다. 오류 기록은 설정 폴더에 저장했습니다.\n\n" + exception.Message,
                     "Taskbar Monitor", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            catch
+            {
+            }
+        }
+
+        internal static void LogError(Exception exception)
+        {
+            if (exception == null) return;
+            try
+            {
+                lock (ErrorLogLock)
+                {
+                    Directory.CreateDirectory(SettingsStore.SettingsDirectory);
+                    string logPath = Path.Combine(SettingsStore.SettingsDirectory, "error.log");
+                    if (File.Exists(logPath) && new FileInfo(logPath).Length >= MaximumErrorLogBytes)
+                        File.WriteAllText(logPath, "이전 오류 기록은 512KB 제한으로 정리되었습니다." + Environment.NewLine);
+                    File.AppendAllText(logPath,
+                        DateTime.Now.ToString("s") + Environment.NewLine + exception + Environment.NewLine + Environment.NewLine);
+                }
             }
             catch
             {
@@ -163,8 +178,8 @@ namespace TaskbarMonitor
                         NativeMethods.GetWindowLong(widgetChild, NativeMethods.GWL_EXSTYLE);
                     bool widgetClickThroughStyle = (widgetExStyle & NativeMethods.WS_EX_TRANSPARENT) != 0;
                     bool widgetChildClickThroughStyle = (widgetChildExStyle & NativeMethods.WS_EX_TRANSPARENT) != 0;
-                    bool clickThroughNativeStatePassed = widgetWindow == IntPtr.Zero ||
-                        (widgetClickThroughStyle == expectedClickThrough &&
+                    bool clickThroughNativeStatePassed = !exerciseWindow ||
+                        (widgetWindow != IntPtr.Zero && widgetClickThroughStyle == expectedClickThrough &&
                          (widgetChild == IntPtr.Zero || widgetChildClickThroughStyle == expectedClickThrough));
                     report["persistedWidgetInteractionEnabled"] = persistedSettings.WidgetInteractionEnabled;
                     bool runtimeInteractionEnabled = widgetWindow != IntPtr.Zero &&
@@ -173,7 +188,7 @@ namespace TaskbarMonitor
                     int runtimeTaskManagerLaunchCount = widgetWindow == IntPtr.Zero ? -1 :
                         NativeMethods.SendMessage(widgetWindow, NativeMethods.WM_APP_QUERY_TASK_MANAGER_LAUNCH_COUNT,
                             IntPtr.Zero, IntPtr.Zero).ToInt32();
-                    bool disabledDoubleClickSuppressed = true;
+                    bool disabledDoubleClickSuppressed = !exerciseWindow || widgetWindow != IntPtr.Zero;
                     if (widgetChild != IntPtr.Zero && !persistedSettings.WidgetInteractionEnabled)
                     {
                         int launchesBefore = runtimeTaskManagerLaunchCount;
@@ -186,8 +201,8 @@ namespace TaskbarMonitor
                         disabledDoubleClickSuppressed = launchesAfter == launchesBefore;
                         runtimeTaskManagerLaunchCount = launchesAfter;
                     }
-                    bool runtimeInteractionMatchesSettings = widgetWindow == IntPtr.Zero ||
-                        runtimeInteractionEnabled == persistedSettings.WidgetInteractionEnabled;
+                    bool runtimeInteractionMatchesSettings = !exerciseWindow ||
+                        (widgetWindow != IntPtr.Zero && runtimeInteractionEnabled == persistedSettings.WidgetInteractionEnabled);
                     report["runtimeWidgetInteractionEnabled"] = runtimeInteractionEnabled;
                     report["runtimeTaskManagerLaunchCount"] = runtimeTaskManagerLaunchCount;
                     report["disabledDoubleClickSuppressed"] = disabledDoubleClickSuppressed;
@@ -210,7 +225,7 @@ namespace TaskbarMonitor
                     report["embeddedWidgetVisible"] = embeddedWidget != IntPtr.Zero && NativeMethods.IsWindowVisible(embeddedWidget);
                     report["embeddedWidgetTopChild"] = embeddedWidget != IntPtr.Zero &&
                         (NativeMethods.GetWindowLong(embeddedWidget, NativeMethods.GWL_EXSTYLE) & NativeMethods.WS_EX_TOPMOST) != 0;
-                    bool embeddedDockingPassed = embeddedWidget == IntPtr.Zero;
+                    bool embeddedDockingPassed = !exerciseWindow;
                     NativeMethods.RECT embeddedRect;
                     if (embeddedWidget != IntPtr.Zero && NativeMethods.GetWindowRect(embeddedWidget, out embeddedRect))
                     {
@@ -224,8 +239,9 @@ namespace TaskbarMonitor
                         report["embeddedWidgetParentMatchesTaskbar"] = parentMatches;
                         report["embeddedWidgetContainedInTaskbar"] = contained;
                         report["embeddedWidgetStyle"] = NativeMethods.GetWindowLong(embeddedWidget, NativeMethods.GWL_STYLE);
-                        embeddedDockingPassed = parentMatches && contained && NativeMethods.IsWindowVisible(embeddedWidget) &&
+                        bool actualEmbeddedDockingPassed = parentMatches && contained && NativeMethods.IsWindowVisible(embeddedWidget) &&
                             (NativeMethods.GetWindowLong(embeddedWidget, NativeMethods.GWL_EXSTYLE) & NativeMethods.WS_EX_TOPMOST) != 0;
+                        embeddedDockingPassed = !exerciseWindow || actualEmbeddedDockingPassed;
                     }
                     report["embeddedDockingPassed"] = embeddedDockingPassed;
                     IntPtr floatingWidget = embeddedWidget == IntPtr.Zero ? widgetWindow : IntPtr.Zero;
@@ -234,7 +250,8 @@ namespace TaskbarMonitor
                     report["floatingWidgetTopMost"] = floatingWidget != IntPtr.Zero &&
                         (NativeMethods.GetWindowLong(floatingWidget, NativeMethods.GWL_EXSTYLE) & NativeMethods.WS_EX_TOPMOST) != 0;
                     NativeMethods.RECT floatingRect;
-                    bool windowChecksPassed = !exerciseWindow;
+                    bool windowChecksPassed = !exerciseWindow ||
+                        (String.Equals(persistedSettings.PositionMode, "Inside", StringComparison.OrdinalIgnoreCase) && embeddedDockingPassed);
                     if (floatingWidget != IntPtr.Zero && NativeMethods.GetWindowRect(floatingWidget, out floatingRect))
                     {
                         Rectangle floatingBounds = floatingRect.ToRectangle();
@@ -244,7 +261,7 @@ namespace TaskbarMonitor
                             (ushort)(floatingBounds.Right - 2);
                         report["popupResizeGripHitTest"] = NativeMethods.SendMessage(floatingWidget,
                             NativeMethods.WM_NCHITTEST, IntPtr.Zero, new IntPtr(packedPoint)).ToInt32() == NativeMethods.HTBOTTOMRIGHT;
-                        if (exerciseWindow)
+                        if (exerciseWindow && String.Equals(persistedSettings.PositionMode, "Popup", StringComparison.OrdinalIgnoreCase))
                         {
                             AppSettings settingsBeforeResizeTest = SettingsStore.Load();
                             try
@@ -270,7 +287,10 @@ namespace TaskbarMonitor
                                 SettingsStore.Save(settingsBeforeResizeTest);
                             }
                         }
+                        else if (exerciseWindow && !String.Equals(persistedSettings.PositionMode, "Inside", StringComparison.OrdinalIgnoreCase))
+                            windowChecksPassed = NativeMethods.IsWindowVisible(floatingWidget);
                     }
+                    report["windowChecksPassed"] = windowChecksPassed;
                     report["defaultFloatingZOrder"] = settings.FloatingZOrder;
                     report["defaultPopupShowOnStartup"] = settings.PopupShowOnStartup;
                     MetricOption memoryOption = settings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Memory; });
@@ -295,7 +315,7 @@ namespace TaskbarMonitor
                     report["success"] = snapshot.MemoryTotalGb > 0.0 && snapshot.CpuPercent >= 0.0 &&
                         snapshot.CpuPercent <= 100.0 && desktopExcluded && memoryFormatSupported &&
                         snapshot.DiskPercents != null && snapshot.DiskPercents.Count == settings.SelectedDisks.Count &&
-                        multiDiskDisplayCount == expectedMultiDiskDisplayCount && pagingPassed && embeddedDockingPassed &&
+                        multiDiskDisplayCount == expectedMultiDiskDisplayCount && pagingPassed &&
                         defaultResetPassed && hiddenSamplingPolicyPassed && insideStyleRenderingPassed && popupResizeCalculationPassed &&
                         widgetInputPolicyPassed && contextMenuAutoDismissConfigured &&
                         clickThroughNativeStatePassed && runtimeInteractionMatchesSettings && disabledDoubleClickSuppressed &&

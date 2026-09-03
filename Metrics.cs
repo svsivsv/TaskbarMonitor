@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
@@ -97,6 +98,7 @@ namespace TaskbarMonitor
 
     public sealed class MetricHistory
     {
+        private static readonly IList<double> EmptyValues = new double[0];
         private readonly Dictionary<MetricKind, List<double>> values;
         private readonly Dictionary<string, List<double>> diskValues;
         private int maximumSamples;
@@ -141,17 +143,17 @@ namespace TaskbarMonitor
             }
         }
 
-        public List<double> GetValues(MetricKind kind)
+        public IList<double> GetValues(MetricKind kind)
         {
-            return new List<double>(values[kind]);
+            return values[kind];
         }
 
-        public List<double> GetDiskValues(string diskName)
+        public IList<double> GetDiskValues(string diskName)
         {
             List<double> list;
             if (!String.IsNullOrEmpty(diskName) && diskValues.TryGetValue(diskName, out list))
-                return new List<double>(list);
-            return new List<double>();
+                return list;
+            return EmptyValues;
         }
 
         public void AddSynthetic(MetricKind kind, double value)
@@ -189,7 +191,9 @@ namespace TaskbarMonitor
         private ulong previousUser;
         private long previousNetworkReceived;
         private long previousNetworkSent;
-        private DateTime previousNetworkTime;
+        private long previousNetworkTimestamp;
+        private long lastNetworkAdapterRefreshTimestamp;
+        private NetworkInterface[] networkAdapters;
         private bool hasCpuSample;
         private bool hasNetworkSample;
         private PdhSingleCounter diskCounter;
@@ -198,12 +202,6 @@ namespace TaskbarMonitor
 
         public MetricSampler()
         {
-            try { diskCounter = new PdhSingleCounter(@"\PhysicalDisk(_Total)\% Disk Time"); }
-            catch { diskCounter = null; }
-            try { logicalDiskCounter = new PdhWildcardCounter(@"\LogicalDisk(*)\% Disk Time"); }
-            catch { logicalDiskCounter = null; }
-            try { gpuCounter = new PdhWildcardCounter(@"\GPU Engine(*)\Utilization Percentage"); }
-            catch { gpuCounter = null; }
         }
 
         public MetricSnapshot Sample(AppSettings settings)
@@ -214,13 +212,24 @@ namespace TaskbarMonitor
             SampleMemory(result);
             SampleDisks(result, settings);
             SampleNetwork(result, IsEnabled(settings, MetricKind.Network));
-            result.GpuPercent = IsEnabled(settings, MetricKind.Gpu) && gpuCounter != null ? gpuCounter.ReadGpuMaximum() : 0.0;
+            if (IsEnabled(settings, MetricKind.Gpu))
+            {
+                EnsureGpuCounter();
+                result.GpuPercent = gpuCounter == null ? 0.0 : gpuCounter.ReadGpuMaximum();
+            }
+            else
+                ReleaseGpuCounter();
             return result;
         }
 
         private void SampleDisks(MetricSnapshot result, AppSettings settings)
         {
-            if (!IsEnabled(settings, MetricKind.Disk)) return;
+            if (!IsEnabled(settings, MetricKind.Disk))
+            {
+                ReleaseDiskCounters();
+                return;
+            }
+            EnsureDiskCounters();
             List<string> selected = settings.SelectedDisks == null ? new List<string>() :
                 settings.SelectedDisks.Where(delegate(string name) { return !String.IsNullOrWhiteSpace(name); })
                     .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -291,11 +300,9 @@ namespace TaskbarMonitor
             long sent = 0;
             try
             {
-                foreach (NetworkInterface adapter in NetworkInterface.GetAllNetworkInterfaces())
+                foreach (NetworkInterface adapter in GetNetworkAdapters())
                 {
                     if (adapter.OperationalStatus != OperationalStatus.Up) continue;
-                    if (adapter.NetworkInterfaceType == NetworkInterfaceType.Loopback ||
-                        adapter.NetworkInterfaceType == NetworkInterfaceType.Tunnel) continue;
                     IPv4InterfaceStatistics statistics = adapter.GetIPv4Statistics();
                     received += statistics.BytesReceived;
                     sent += statistics.BytesSent;
@@ -305,17 +312,77 @@ namespace TaskbarMonitor
             {
                 return;
             }
-            DateTime now = DateTime.UtcNow;
+            long now = Stopwatch.GetTimestamp();
             if (hasNetworkSample)
             {
-                double seconds = Math.Max(0.001, (now - previousNetworkTime).TotalSeconds);
+                double seconds = Math.Max(0.001, (now - previousNetworkTimestamp) / (double)Stopwatch.Frequency);
                 if (received >= previousNetworkReceived) result.NetworkDownloadBytes = (received - previousNetworkReceived) / seconds;
                 if (sent >= previousNetworkSent) result.NetworkUploadBytes = (sent - previousNetworkSent) / seconds;
             }
             previousNetworkReceived = received;
             previousNetworkSent = sent;
-            previousNetworkTime = now;
+            previousNetworkTimestamp = now;
             hasNetworkSample = true;
+        }
+
+        private NetworkInterface[] GetNetworkAdapters()
+        {
+            long now = Stopwatch.GetTimestamp();
+            bool refresh = networkAdapters == null || lastNetworkAdapterRefreshTimestamp == 0 ||
+                (now - lastNetworkAdapterRefreshTimestamp) / (double)Stopwatch.Frequency >= 10.0;
+            if (refresh)
+            {
+                networkAdapters = NetworkInterface.GetAllNetworkInterfaces()
+                    .Where(delegate(NetworkInterface adapter)
+                    {
+                        return adapter.NetworkInterfaceType != NetworkInterfaceType.Loopback &&
+                            adapter.NetworkInterfaceType != NetworkInterfaceType.Tunnel;
+                    }).ToArray();
+                lastNetworkAdapterRefreshTimestamp = now;
+            }
+            return networkAdapters;
+        }
+
+        private void EnsureDiskCounters()
+        {
+            if (diskCounter == null)
+            {
+                try { diskCounter = new PdhSingleCounter(@"\PhysicalDisk(_Total)\% Disk Time"); }
+                catch { diskCounter = null; }
+            }
+            if (logicalDiskCounter == null)
+            {
+                try { logicalDiskCounter = new PdhWildcardCounter(@"\LogicalDisk(*)\% Disk Time"); }
+                catch { logicalDiskCounter = null; }
+            }
+        }
+
+        private void EnsureGpuCounter()
+        {
+            if (gpuCounter != null) return;
+            try { gpuCounter = new PdhWildcardCounter(@"\GPU Engine(*)\Utilization Percentage"); }
+            catch { gpuCounter = null; }
+        }
+
+        private void ReleaseDiskCounters()
+        {
+            if (diskCounter != null)
+            {
+                diskCounter.Dispose();
+                diskCounter = null;
+            }
+            if (logicalDiskCounter != null)
+            {
+                logicalDiskCounter.Dispose();
+                logicalDiskCounter = null;
+            }
+        }
+
+        private void ReleaseGpuCounter()
+        {
+            if (gpuCounter == null) return;
+            gpuCounter.Dispose();
+            gpuCounter = null;
         }
 
         private static double Clamp(double value)
@@ -326,9 +393,8 @@ namespace TaskbarMonitor
 
         public void Dispose()
         {
-            if (diskCounter != null) diskCounter.Dispose();
-            if (logicalDiskCounter != null) logicalDiskCounter.Dispose();
-            if (gpuCounter != null) gpuCounter.Dispose();
+            ReleaseDiskCounters();
+            ReleaseGpuCounter();
         }
     }
 

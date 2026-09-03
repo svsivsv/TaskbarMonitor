@@ -51,8 +51,12 @@ namespace TaskbarMonitor
             Text = "Taskbar Monitor 설정";
             Icon = IconFactory.CreateGraphIcon(Color.FromArgb(0, 183, 195));
             StartPosition = FormStartPosition.CenterScreen;
-            Size = new Size(800, 1040);
-            MinimumSize = new Size(760, 980);
+            Rectangle workingArea = Screen.FromPoint(Cursor.Position).WorkingArea;
+            Size = new Size(Math.Max(680, Math.Min(800, workingArea.Width - 32)),
+                Math.Max(620, Math.Min(1040, workingArea.Height - 32)));
+            MinimumSize = new Size(680, 600);
+            AutoScroll = true;
+            AutoScrollMinSize = new Size(0, 1000);
             AutoScaleMode = AutoScaleMode.Dpi;
             Font = new Font("Segoe UI", 9.0f);
             BackColor = Color.FromArgb(245, 245, 245);
@@ -240,7 +244,8 @@ namespace TaskbarMonitor
             helpText.Text =
                 "권장값은 갱신 1000ms, 그래프 기록 60초입니다. 갱신 값을 낮추면 더 빠르게 반응하지만 CPU 사용량이 늘 수 있습니다.\r\n" +
                 "세 표시 모드는 설정과 우클릭 메뉴에서 언제든 바로 전환할 수 있습니다. 별도 상세 그래프 창은 열지 않습니다.\r\n" +
-                "설정을 조작하는 동안 팝업과 자동 미리보기 갱신을 잠시 멈춰 메뉴·입력창이 닫히지 않게 합니다.";
+                "숨김 중 측정의 기본값은 '완전히 중지'입니다. 5초 간격과 계속 측정은 숨겨진 동안에도 그래프 기록이 필요한 경우에만 선택하세요.\r\n" +
+                "설정을 조작하는 동안 실제 위젯 재배치를 멈춰 메뉴·입력창이 닫히지 않게 합니다.";
             helpGroup.Controls.Add(helpText);
             Controls.Add(helpGroup);
 
@@ -249,7 +254,7 @@ namespace TaskbarMonitor
             bottom.WrapContents = false;
             bottom.Location = new Point(18, 942);
             bottom.Size = new Size(748, 43);
-            bottom.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
+            bottom.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             Button startButton = NewButton("저장하고 표시 적용", SaveAndStart);
             startButton.AutoSize = true;
             startButton.Height = 32;
@@ -368,9 +373,9 @@ namespace TaskbarMonitor
             helpTip.SetToolTip(historyInput, "미니 그래프가 기억하는 과거 시간입니다. 60초를 권장하며, 길게 잡을수록 메모리를 조금 더 사용합니다.");
             helpTip.SetToolTip(widthInput, "위젯이 차지할 수 있는 최대 가로 폭입니다. 항목이 잘리면 늘리고 작업표시줄이 좁으면 줄이세요.");
             helpTip.SetToolTip(offsetInput, "작업표시줄 왼쪽 끝에서 위젯이 시작할 위치입니다. 날씨 버튼과 시작 버튼 사이 배치를 미세 조정할 때 사용합니다.");
-            helpTip.SetToolTip(opacityInput, "패널 배경의 불투명도입니다. 작업 표시줄 위 모드에서 효과가 크며, 무배경 결합 모드에서는 영향이 적습니다.");
+            helpTip.SetToolTip(opacityInput, "패널 배경의 불투명도입니다. 작업 표시줄 위·팝업 모드에서 효과가 크며, 작업표시줄 배경 투명을 켠 안쪽 모드에서는 적용되지 않습니다.");
             helpTip.SetToolTip(fontInput, "항목 이름과 숫자의 글자 크기입니다. 칸이 좁을 때는 8~9 정도가 보기 좋습니다.");
-            helpTip.SetToolTip(positionInput, "안쪽: 작업표시줄 결합 / 위쪽: 작업표시줄 위에 계속 표시 / 팝업: 트레이 아이콘 클릭으로 열고 닫는 독립 창입니다.");
+            helpTip.SetToolTip(positionInput, "안쪽: Windows 11 작업표시줄의 날씨와 시작 버튼 사이 빈 공간에 맞춰 표시 / 위쪽: 작업표시줄 위의 얇은 창 / 팝업: 이동·크기 조절 가능한 독립 창입니다.");
             helpTip.SetToolTip(fullscreenInput, "숨기기: 전체화면에서 감춤 / 항상 표시: 위에 유지 / 클릭 통과: 보이지만 마우스 입력은 전체화면 앱으로 전달합니다.");
             helpTip.SetToolTip(insideItemWidthInput, "작업표시줄 안쪽 모드에서 CPU·RAM 등 항목 하나가 차지할 기준 폭입니다. 폭이 작으면 이름이 짧게 표시됩니다.");
             helpTip.SetToolTip(insideHeightInput, "작업표시줄 안쪽 위젯의 높이입니다. 기본 28px이며 작업표시줄 높이를 넘지 않도록 자동 제한됩니다.");
@@ -378,7 +383,7 @@ namespace TaskbarMonitor
             helpTip.SetToolTip(popupHeightInput, "독립 팝업의 세로 크기입니다. 기본 72px이며 48~400px 범위에서 조절할 수 있습니다.");
             helpTip.SetToolTip(floatingOrderInput, "일반: 다른 창을 사용하면 자연스럽게 뒤로 감 / 항상 위: 직접 선택한 경우에만 최상단 / 항상 뒤: 다른 일반 창 뒤에 둡니다.");
             helpTip.SetToolTip(autoFitInput, "날씨 버튼과 시작 버튼 사이의 실제 빈 공간에 맞춰 항목 폭을 자동으로 줄입니다.");
-            helpTip.SetToolTip(hiddenMeasurementInput, "위젯과 설정창이 모두 숨겨졌을 때의 측정 방식입니다. 완전히 중지는 측정과 그래프 기록을 멈추고, 5초 간격 절전은 5초마다 기록하며, 계속 측정은 설정한 갱신 간격을 유지합니다.");
+            helpTip.SetToolTip(hiddenMeasurementInput, "위젯과 설정창이 모두 숨겨졌을 때만 적용됩니다. 완전히 중지(기본)는 하드웨어 측정과 그래프 기록을 쉬게 합니다. 5초 간격은 숨김 중에도 듬성듬성 기록할 때, 계속 측정은 기록을 끊지 않을 때만 사용하세요.");
             helpTip.SetToolTip(startupInput, "Windows 로그인 후 저장된 설정으로 위젯을 자동 실행합니다.");
             helpTip.SetToolTip(showSettingsInput, "EXE를 직접 실행했을 때 위젯보다 설정창을 먼저 엽니다. Windows 자동 시작에는 적용되지 않습니다.");
             helpTip.SetToolTip(seamlessInput, "작업표시줄 안쪽 모드에서만 적용됩니다. 켜면 위젯 배경을 투명하게 해 글자와 그래프만 보이고, 끄면 패널 배경·테두리·항목 구분선을 표시합니다.");
@@ -793,6 +798,12 @@ namespace TaskbarMonitor
             if (value == "사용 GB") return "UsedGb";
             if (value == "사용/전체 GB") return "UsedTotalGb";
             return "Percent";
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && helpTip != null) helpTip.Dispose();
+            base.Dispose(disposing);
         }
     }
 }

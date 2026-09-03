@@ -325,7 +325,19 @@ namespace TaskbarMonitor
         {
             Directory.CreateDirectory(SettingsDirectory);
             JavaScriptSerializer serializer = new JavaScriptSerializer();
-            File.WriteAllText(SettingsPath, serializer.Serialize(settings));
+            string temporaryPath = SettingsPath + ".tmp";
+            try
+            {
+                File.WriteAllText(temporaryPath, serializer.Serialize(settings));
+                if (File.Exists(SettingsPath))
+                    File.Replace(temporaryPath, SettingsPath, null, true);
+                else
+                    File.Move(temporaryPath, SettingsPath);
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+            }
         }
 
         public static void ApplyStartupSetting(bool enabled)

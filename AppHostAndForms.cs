@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows.Automation;
 using System.Windows.Forms;
 
@@ -92,6 +93,14 @@ namespace TaskbarMonitor
         private bool showSettingsAfterMenuClose;
         private int taskManagerLaunchCount;
         private DateTime lastHiddenSample;
+        private DateTime nextSampleAt;
+        private DateTime lastVisibilityCheck = DateTime.MinValue;
+        private DateTime lastWidgetRefresh = DateTime.MinValue;
+        private Task<MetricSnapshot> samplingTask;
+        private bool shuttingDown;
+        private bool lastFullscreen;
+        private bool lastShellFlyout;
+        private string lastTrayTooltip = String.Empty;
         private DateTime contextMenuPointerLeftAt = DateTime.MinValue;
 
         public AppHost(bool startupLaunch) : this(startupLaunch, false)
@@ -106,6 +115,7 @@ namespace TaskbarMonitor
             sampler = new MetricSampler();
             snapshot = sampler.Sample(settings);
             history.Add(snapshot);
+            nextSampleAt = DateTime.UtcNow.AddMilliseconds(settings.UpdateIntervalMs);
 
             messageSink = new MessageSink();
             messageSink.ShowSettingsRequested += delegate { RequestShowSettings(); };
@@ -147,9 +157,10 @@ namespace TaskbarMonitor
             trayIcon.Visible = true;
             trayIcon.ContextMenuStrip = contextMenu;
             trayIcon.MouseClick += TrayIconMouseClick;
+            UpdateTrayTooltip();
 
             refreshTimer = new Timer();
-            refreshTimer.Interval = settings.UpdateIntervalMs;
+            refreshTimer.Interval = Math.Max(50, Math.Min(250, settings.UpdateIntervalMs));
             refreshTimer.Tick += RefreshTick;
             refreshTimer.Start();
 
@@ -329,43 +340,86 @@ namespace TaskbarMonitor
 
         private void RefreshTick(object sender, EventArgs e)
         {
-            bool fullscreen = NativeMethods.IsForegroundFullscreen(
-                widgetForm == null ? IntPtr.Zero : widgetForm.Handle,
-                IntPtr.Zero,
-                settingsForm == null ? IntPtr.Zero : settingsForm.Handle);
-            bool captureForeground = NativeMethods.IsCaptureForeground();
-            if (captureForeground && settings.CaptureMode == "Show") fullscreen = false;
-
-            if (!paused)
+            if (shuttingDown) return;
+            bool sampleChanged = CompleteSamplingTask();
+            DateTime now = DateTime.UtcNow;
+            int visibilityInterval = Math.Max(250, Math.Min(1000, settings.UpdateIntervalMs));
+            if ((now - lastVisibilityCheck).TotalMilliseconds >= visibilityInterval)
             {
-                bool settingsVisible = settingsForm != null && !settingsForm.IsDisposed && settingsForm.Visible &&
-                    settingsForm.WindowState != FormWindowState.Minimized;
-                bool widgetVisible = monitoring && widgetForm != null && !widgetForm.IsDisposed && widgetForm.Visible;
-                bool hidden = !settingsVisible && !widgetVisible;
-                DateTime now = DateTime.UtcNow;
-                if (ShouldSampleMetrics(hidden, settings.HiddenMeasurementMode, lastHiddenSample, now))
-                {
-                    snapshot = sampler.Sample(settings);
-                    history.Add(snapshot);
-                    if (hidden && String.Equals(settings.HiddenMeasurementMode, "Throttle", StringComparison.OrdinalIgnoreCase))
-                        lastHiddenSample = now;
-                }
+                lastFullscreen = NativeMethods.IsForegroundFullscreen(
+                    widgetForm == null ? IntPtr.Zero : widgetForm.Handle,
+                    IntPtr.Zero,
+                    settingsForm == null ? IntPtr.Zero : settingsForm.Handle);
+                bool captureForeground = NativeMethods.IsCaptureForeground();
+                if (captureForeground && settings.CaptureMode == "Show") lastFullscreen = false;
+                lastShellFlyout = NativeMethods.IsShellFlyoutForeground();
+                lastVisibilityCheck = now;
             }
 
-            UpdateTrayTooltip();
             if (widgetForm != null)
             {
+                widgetForm.UpdateVisibilityState(lastFullscreen, lastShellFlyout, monitoring);
                 bool configurationUiOpen = contextMenu.Visible ||
                     (settingsForm != null && !settingsForm.IsDisposed && settingsForm.Visible &&
                      settingsForm.WindowState != FormWindowState.Minimized);
                 // Repainting or reshaping the popup while its menu/settings UI is
                 // in use can dismiss native dropdowns. Freeze only the widget
                 // presentation; sampling and the settings preview continue.
-                if (!configurationUiOpen) widgetForm.UpdateData(settings, snapshot, history);
-                widgetForm.UpdateFullscreenState(fullscreen, monitoring);
+                bool layoutRefreshDue = (now - lastWidgetRefresh).TotalSeconds >= 1.0;
+                if (!configurationUiOpen && (sampleChanged || layoutRefreshDue))
+                {
+                    widgetForm.UpdateData(settings, snapshot, history);
+                    lastWidgetRefresh = now;
+                }
+                if (!configurationUiOpen) widgetForm.MaintainTaskbarLayer();
             }
-            if (settingsForm != null && !settingsForm.IsDisposed)
+            if (sampleChanged) UpdateTrayTooltip();
+            if (sampleChanged && settingsForm != null && !settingsForm.IsDisposed)
                 settingsForm.UpdatePreview(snapshot, history);
+
+            if (!paused && samplingTask == null && now >= nextSampleAt)
+            {
+                bool settingsVisible = settingsForm != null && !settingsForm.IsDisposed && settingsForm.Visible &&
+                    settingsForm.WindowState != FormWindowState.Minimized;
+                bool widgetVisible = monitoring && widgetForm != null && !widgetForm.IsDisposed && widgetForm.Visible;
+                bool hidden = !settingsVisible && !widgetVisible;
+                if (ShouldSampleMetrics(hidden, settings.HiddenMeasurementMode, lastHiddenSample, now))
+                {
+                    if (hidden && String.Equals(settings.HiddenMeasurementMode, "Throttle", StringComparison.OrdinalIgnoreCase))
+                        lastHiddenSample = now;
+                    AppSettings sampleSettings = settings.Clone();
+                    nextSampleAt = now.AddMilliseconds(settings.UpdateIntervalMs);
+                    samplingTask = Task.Factory.StartNew(
+                        delegate { return sampler.Sample(sampleSettings); },
+                        System.Threading.CancellationToken.None, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
+                }
+            }
+
+            bool allUiHidden = (settingsForm == null || settingsForm.IsDisposed || !settingsForm.Visible ||
+                settingsForm.WindowState == FormWindowState.Minimized) &&
+                (widgetForm == null || widgetForm.IsDisposed || !widgetForm.Visible);
+            int desiredTimerInterval = allUiHidden &&
+                String.Equals(settings.HiddenMeasurementMode, "Stop", StringComparison.OrdinalIgnoreCase)
+                ? 1000 : Math.Max(50, Math.Min(250, settings.UpdateIntervalMs));
+            if (refreshTimer.Interval != desiredTimerInterval) refreshTimer.Interval = desiredTimerInterval;
+        }
+
+        private bool CompleteSamplingTask()
+        {
+            Task<MetricSnapshot> task = samplingTask;
+            if (task == null || !task.IsCompleted) return false;
+            samplingTask = null;
+            try
+            {
+                snapshot = task.GetAwaiter().GetResult();
+                history.Add(snapshot);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Program.LogError(ex);
+                return false;
+            }
         }
 
         internal static bool ShouldSampleMetrics(bool hidden, string hiddenMeasurementMode,
@@ -383,7 +437,10 @@ namespace TaskbarMonitor
             string text = "CPU " + snapshot.CpuPercent.ToString("0") + "%  RAM " + snapshot.MemoryPercent.ToString("0") + "%";
             if (settings.Metrics.Any(delegate(MetricOption m) { return m.Kind == MetricKind.Gpu && m.Enabled; }))
                 text += "  GPU " + snapshot.GpuPercent.ToString("0") + "%";
-            trayIcon.Text = text.Length > 63 ? text.Substring(0, 63) : text;
+            text = text.Length > 63 ? text.Substring(0, 63) : text;
+            if (String.Equals(lastTrayTooltip, text, StringComparison.Ordinal)) return;
+            trayIcon.Text = text;
+            lastTrayTooltip = text;
         }
 
         public void ApplySettings(AppSettings newSettings, bool startMonitor)
@@ -406,7 +463,8 @@ namespace TaskbarMonitor
             SettingsStore.Save(settings);
             SettingsStore.ApplyStartupSetting(settings.StartWithWindows);
             history.Configure(settings.HistorySeconds, settings.UpdateIntervalMs);
-            refreshTimer.Interval = Math.Max(200, Math.Min(10000, settings.UpdateIntervalMs));
+            refreshTimer.Interval = Math.Max(50, Math.Min(250, settings.UpdateIntervalMs));
+            nextSampleAt = DateTime.UtcNow;
             if (widgetForm != null) widgetForm.UpdateData(settings, snapshot, history);
             if (settings.PopupPinned && !settings.PopupPositionSaved && widgetForm != null && !widgetForm.IsDisposed)
             {
@@ -529,16 +587,25 @@ namespace TaskbarMonitor
 
         protected override void ExitThreadCore()
         {
+            shuttingDown = true;
             refreshTimer.Stop();
             contextMenuDismissTimer.Stop();
+            Task<MetricSnapshot> activeSample = samplingTask;
+            bool samplerSafeToDispose = true;
+            if (activeSample != null)
+            {
+                try { samplerSafeToDispose = activeSample.Wait(2000); }
+                catch (Exception ex) { Program.LogError(ex); }
+            }
             trayIcon.Visible = false;
             trayIcon.Dispose();
             contextMenu.Dispose();
             contextMenuDismissTimer.Dispose();
+            refreshTimer.Dispose();
             messageSink.Dispose();
             if (widgetForm != null) widgetForm.Dispose();
             if (settingsForm != null) settingsForm.Dispose();
-            sampler.Dispose();
+            if (samplerSafeToDispose) sampler.Dispose();
             base.ExitThreadCore();
         }
     }
@@ -556,6 +623,7 @@ namespace TaskbarMonitor
         private bool embedded;
         private IntPtr taskbarParent;
         private bool hiddenForFullscreen;
+        private bool hiddenForShellFlyout;
         private bool hiddenByUser;
         private bool popupDragging;
         private bool popupDragMoved;
@@ -860,14 +928,13 @@ namespace TaskbarMonitor
                 TaskbarFreeSlot freeSlot = TaskbarLayoutProbe.GetFreeSlot(taskbarHandle, taskbar, settings.TaskbarOffset);
                 x = freeSlot.Left;
                 height = Math.Max(20, Math.Min(settings.InsideHeight, taskbar.Height - 6));
-                int centerLimit = freeSlot.Right;
-                int available = centerLimit - x;
-                if (settings.AutoFit && available >= 160) width = Math.Min(width, available);
-                width = Math.Min(width, Math.Max(160, taskbar.Width - x - 220));
+                int rightLimit = Math.Min(freeSlot.Right, taskbar.Width - 8);
+                int available = Math.Max(1, rightLimit - x);
+                width = Math.Max(1, Math.Min(width, available));
                 y = Math.Max(2, (taskbar.Height - height) / 2);
                 int screenX = taskbar.Left + x;
                 int screenY = taskbar.Top + y;
-                SetPositionIfNeeded(screenX, screenY, Math.Max(160, width), Math.Max(28, height));
+                SetPositionIfNeeded(screenX, screenY, width, height);
             }
         }
 
@@ -881,16 +948,26 @@ namespace TaskbarMonitor
             NativeMethods.SetWindowPos(Handle, NativeMethods.HWND_TOP, x, y, width, height, flags);
         }
 
-        public void UpdateFullscreenState(bool fullscreen, bool monitoring)
+        public void UpdateVisibilityState(bool fullscreen, bool shellFlyout, bool monitoring)
         {
             bool fullscreenChanged = fullscreenActive != fullscreen;
             fullscreenActive = fullscreen;
             string mode = host.Settings.FullscreenMode;
             hiddenForFullscreen = fullscreen && String.Equals(mode, "Hide", StringComparison.OrdinalIgnoreCase);
             fullscreenClickThrough = fullscreen && String.Equals(mode, "ClickThrough", StringComparison.OrdinalIgnoreCase);
+            hiddenForShellFlyout = shellFlyout &&
+                String.Equals(host.Settings.PositionMode, "Inside", StringComparison.OrdinalIgnoreCase);
             UpdateClickThrough();
             ApplyAutomaticVisibility(monitoring);
             if (fullscreenChanged) ApplyFloatingWindowOrder(false);
+        }
+
+        public void MaintainTaskbarLayer()
+        {
+            if (!embedded || !Visible || settingsOpen || hiddenForShellFlyout) return;
+            NativeMethods.SetWindowPos(Handle, NativeMethods.HWND_TOPMOST, 0, 0, 0, 0,
+                NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE |
+                NativeMethods.SWP_SHOWWINDOW);
         }
 
         private void UpdateClickThrough()
@@ -916,7 +993,7 @@ namespace TaskbarMonitor
 
         private void ApplyAutomaticVisibility(bool monitoring)
         {
-            bool shouldShow = monitoring && !hiddenByUser && !hiddenForFullscreen;
+            bool shouldShow = monitoring && !hiddenByUser && !hiddenForFullscreen && !hiddenForShellFlyout;
             if (shouldShow && !Visible)
             {
                 Show();

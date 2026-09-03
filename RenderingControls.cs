@@ -146,10 +146,12 @@ namespace TaskbarMonitor
 
         public void SetIntegratedStyle(bool enabled, Color backgroundKey, bool seamless)
         {
+            bool changed = integratedStyle != enabled || integratedSeamless != (enabled && seamless) ||
+                integratedBackColor != backgroundKey;
             integratedStyle = enabled;
             integratedSeamless = enabled && seamless;
             integratedBackColor = backgroundKey;
-            Invalidate();
+            if (changed) Invalidate();
         }
 
         protected override void OnPaint(PaintEventArgs e)
