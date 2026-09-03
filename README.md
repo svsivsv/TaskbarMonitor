@@ -130,11 +130,11 @@ EXE를 직접 실행하거나 위젯을 우클릭한 뒤 `위젯 설정 수정`�
 powershell -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
-빌드가 끝나면 `publish\TaskbarMonitor.exe` 하나만 생성됩니다. GitHub Releases에는 이 EXE를 그대로 올리면 됩니다. README와 소스 코드는 저장소 루트에서 관리하며 JSON·PNG·PDB 같은 검사 파일은 배포 폴더에 포함되지 않습니다. Windows에 포함된 .NET Framework C# 컴파일러를 사용하므로 별도 Python 또는 .NET SDK는 필요하지 않습니다.
+빌드가 끝나면 `release\TaskbarMonitor.exe` 하나만 생성됩니다. 사용자는 GitHub의 **Releases** 페이지에서 이 EXE 하나를 내려받아 실행하면 됩니다. JSON·PNG·PDB 같은 검사 파일은 배포 폴더에 포함되지 않습니다. Windows에 포함된 .NET Framework C# 컴파일러를 사용하므로 별도 Python 또는 .NET SDK는 필요하지 않습니다.
 
 ### 실행
 
-`publish\TaskbarMonitor.exe`를 실행합니다. 기본 설정에서는 직접 실행할 때 설정창이 먼저 열립니다. 관리자 권한은 필요하지 않습니다.
+Releases에서 받은 `TaskbarMonitor.exe` 또는 직접 빌드한 `release\TaskbarMonitor.exe`를 실행합니다. 기본 설정에서는 직접 실행할 때 설정창이 먼저 열립니다. 관리자 권한은 필요하지 않습니다.
 
 설정 파일은 다음 위치에 저장됩니다.
 
@@ -170,13 +170,15 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 
 ## 배포 파일
 
-사용자 폴더에는 최신 실행 파일 하나만 바로 보이게 두고 나머지 자료는 하위 폴더로 구분합니다. 파일명에는 버전 번호를 붙이지 않습니다.
+GitHub 저장소에는 수정 가능한 소스 코드와 공개 문서만 두고, 완성된 실행 파일은 GitHub Releases에 올립니다. 이 앱은 외부 동봉 파일이 필요하지 않아 Release 자산도 EXE 하나면 충분합니다.
 
 ```text
-TaskbarMonitor\
-├─ TaskbarMonitor.exe
-├─ docs\README.md
-├─ packages\TaskbarMonitor.zip
-├─ packages\TaskbarMonitor-source.zip
-└─ local\                 로컬 개발 기록, 공개 배포 제외
+GitHub 저장소
+├─ *.cs                   프로그램 소스 코드
+├─ build.ps1              EXE 빌드 스크립트
+├─ docs\                  README용 화면 이미지
+└─ README.md              공개 설명서
+
+GitHub Releases
+└─ TaskbarMonitor.exe     사용자 실행·공유 파일
 ```

@@ -3,8 +3,8 @@ param(
 )
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$publishDirectory = Join-Path $projectRoot 'publish'
-$outputDirectory = $publishDirectory
+$releaseDirectory = Join-Path $projectRoot 'release'
+$outputDirectory = $releaseDirectory
 $compilerCandidates = @(
     'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe',
     'C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe'
@@ -16,27 +16,28 @@ if (-not $compilerPath) {
 }
 
 $resolvedProjectRoot = [IO.Path]::GetFullPath($projectRoot).TrimEnd('\')
-$resolvedPublishDirectory = [IO.Path]::GetFullPath($publishDirectory).TrimEnd('\')
-if (-not $resolvedPublishDirectory.StartsWith($resolvedProjectRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
-    throw "빌드 출력 경로가 프로젝트 폴더 밖입니다: $resolvedPublishDirectory"
+$resolvedReleaseDirectory = [IO.Path]::GetFullPath($releaseDirectory).TrimEnd('\')
+if (-not $resolvedReleaseDirectory.StartsWith($resolvedProjectRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    throw "빌드 출력 경로가 프로젝트 폴더 밖입니다: $resolvedReleaseDirectory"
 }
 
-New-Item -ItemType Directory -Path $publishDirectory -Force | Out-Null
+New-Item -ItemType Directory -Path $releaseDirectory -Force | Out-Null
 foreach ($legacyName in @('TaskbarMonitor.pdb', 'README.md', 'TaskbarMonitor.zip')) {
-    $legacyPath = Join-Path $publishDirectory $legacyName
+    $legacyPath = Join-Path $releaseDirectory $legacyName
     if (Test-Path -LiteralPath $legacyPath) {
         Remove-Item -LiteralPath $legacyPath -Force -ErrorAction Stop
     }
 }
-$legacyAppDirectory = Join-Path $publishDirectory 'app'
+$legacyAppDirectory = Join-Path $releaseDirectory 'app'
 if (Test-Path -LiteralPath $legacyAppDirectory -PathType Container) {
     $resolvedLegacyAppDirectory = [IO.Path]::GetFullPath($legacyAppDirectory).TrimEnd('\')
-    if (-not $resolvedLegacyAppDirectory.StartsWith($resolvedPublishDirectory + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    if (-not $resolvedLegacyAppDirectory.StartsWith($resolvedReleaseDirectory + '\', [StringComparison]::OrdinalIgnoreCase)) {
         throw "이전 빌드 폴더 경로 검증에 실패했습니다: $resolvedLegacyAppDirectory"
     }
     Remove-Item -LiteralPath $resolvedLegacyAppDirectory -Recurse -Force -ErrorAction Stop
 }
 $outputPath = Join-Path $outputDirectory 'TaskbarMonitor.exe'
+$manifestPath = Join-Path $projectRoot 'app.manifest'
 $sourceFiles = Get-ChildItem -LiteralPath $projectRoot -Filter '*.cs' | ForEach-Object { $_.FullName }
 $gacRoot = 'C:\Windows\Microsoft.NET\assembly\GAC_MSIL'
 $uiAutomationClient = Join-Path $gacRoot 'UIAutomationClient\v4.0_4.0.0.0__31bf3856ad364e35\UIAutomationClient.dll'
@@ -46,7 +47,7 @@ $compilerOptions = @(
     '/nologo',
     '/target:winexe',
     '/platform:x64',
-    '/win32manifest:app.manifest',
+    "/win32manifest:$manifestPath",
     "/out:$outputPath",
     '/reference:System.dll',
     '/reference:System.Core.dll',

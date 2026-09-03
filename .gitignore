@@ -1,4 +1,4 @@
-publish/
+release/
 bin/
 obj/
 .vs/
@@ -8,4 +8,3 @@ obj/
 *.log
 taskbar-live-*.png
 self-test-*.json
-README.local.md
