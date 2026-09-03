@@ -3,7 +3,9 @@ param(
 )
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$outputDirectory = Join-Path $projectRoot 'publish'
+$publishDirectory = Join-Path $projectRoot 'publish'
+$outputDirectory = Join-Path $publishDirectory 'app'
+$releaseZip = Join-Path $publishDirectory 'TaskbarMonitor.zip'
 $compilerCandidates = @(
     'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe',
     'C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe'
@@ -14,7 +16,21 @@ if (-not $compilerPath) {
     throw 'Windows .NET Framework C# compiler(csc.exe)를 찾을 수 없습니다.'
 }
 
+$resolvedProjectRoot = [IO.Path]::GetFullPath($projectRoot).TrimEnd('\')
+$resolvedOutputDirectory = [IO.Path]::GetFullPath($outputDirectory).TrimEnd('\')
+if (-not $resolvedOutputDirectory.StartsWith($resolvedProjectRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    throw "빌드 출력 경로가 프로젝트 폴더 밖입니다: $resolvedOutputDirectory"
+}
+
+New-Item -ItemType Directory -Path $publishDirectory -Force | Out-Null
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
+Get-ChildItem -LiteralPath $outputDirectory -Force | Remove-Item -Recurse -Force -ErrorAction Stop
+foreach ($legacyName in @('TaskbarMonitor.exe', 'TaskbarMonitor.pdb', 'README.md')) {
+    $legacyPath = Join-Path $publishDirectory $legacyName
+    if (Test-Path -LiteralPath $legacyPath) {
+        Remove-Item -LiteralPath $legacyPath -Force -ErrorAction Stop
+    }
+}
 $outputPath = Join-Path $outputDirectory 'TaskbarMonitor.exe'
 $sourceFiles = Get-ChildItem -LiteralPath $projectRoot -Filter '*.cs' | ForEach-Object { $_.FullName }
 $gacRoot = 'C:\Windows\Microsoft.NET\assembly\GAC_MSIL'
@@ -54,10 +70,13 @@ if (Test-Path -LiteralPath $readmeSource) {
     Copy-Item -LiteralPath $readmeSource -Destination $readmeOutput -Force
 }
 
+Compress-Archive -Path (Join-Path $outputDirectory '*') -DestinationPath $releaseZip -CompressionLevel Optimal -Force
+
 $builtFile = Get-Item -LiteralPath $outputPath
 $hash = Get-FileHash -LiteralPath $outputPath -Algorithm SHA256
 [pscustomobject]@{
     File = $builtFile.FullName
     SizeBytes = $builtFile.Length
     SHA256 = $hash.Hash
+    ReleaseZip = $releaseZip
 }

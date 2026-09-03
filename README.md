@@ -130,11 +130,11 @@ EXE를 직접 실행하거나 위젯을 우클릭한 뒤 `위젯 설정 수정`�
 powershell -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
-빌드가 끝나면 `publish\TaskbarMonitor.exe`가 생성됩니다. Windows에 포함된 .NET Framework C# 컴파일러를 사용하므로 별도 Python 또는 .NET SDK는 필요하지 않습니다.
+빌드가 끝나면 `publish\app`에 `TaskbarMonitor.exe`와 `README.md`가 생성되고, GitHub Releases에 바로 올릴 수 있는 `publish\TaskbarMonitor.zip`도 함께 만들어집니다. JSON·PNG·PDB 같은 검사 파일은 배포 폴더에 포함되지 않습니다. Windows에 포함된 .NET Framework C# 컴파일러를 사용하므로 별도 Python 또는 .NET SDK는 필요하지 않습니다.
 
 ### 실행
 
-`publish\TaskbarMonitor.exe`를 실행합니다. 기본 설정에서는 직접 실행할 때 설정창이 먼저 열립니다. 관리자 권한은 필요하지 않습니다.
+`publish\app\TaskbarMonitor.exe`를 실행합니다. 또는 `publish\TaskbarMonitor.zip`을 원하는 폴더에 풀고 EXE를 실행합니다. 기본 설정에서는 직접 실행할 때 설정창이 먼저 열립니다. 관리자 권한은 필요하지 않습니다.
 
 설정 파일은 다음 위치에 저장됩니다.
 
@@ -145,7 +145,7 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 ## 성능과 개인정보
 
 - 권장 갱신 간격은 1000ms입니다. 더 빠른 200~500ms 갱신은 그래프가 부드러워지는 대신 CPU 사용량이 증가할 수 있습니다.
-- 숨김 절전 갱신을 켜면 보이지 않을 때 5초에 한 번만 측정합니다.
+- 숨김 중 측정은 완전히 중지, 5초 간격 절전, 계속 측정 중에서 선택할 수 있습니다.
 - 모든 측정과 설정 저장은 PC 내부에서 처리됩니다.
 - 네트워크 서버, 계정, 광고, 원격 분석 기능을 사용하지 않습니다.
 - 관리자 권한 없이 실행되도록 설계했습니다.
