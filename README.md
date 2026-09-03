@@ -130,11 +130,11 @@ EXE를 직접 실행하거나 위젯을 우클릭한 뒤 `위젯 설정 수정`�
 powershell -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
-빌드가 끝나면 `publish\app`에 `TaskbarMonitor.exe`와 `README.md`가 생성되고, GitHub Releases에 바로 올릴 수 있는 `publish\TaskbarMonitor.zip`도 함께 만들어집니다. JSON·PNG·PDB 같은 검사 파일은 배포 폴더에 포함되지 않습니다. Windows에 포함된 .NET Framework C# 컴파일러를 사용하므로 별도 Python 또는 .NET SDK는 필요하지 않습니다.
+빌드가 끝나면 `publish\TaskbarMonitor.exe` 하나만 생성됩니다. GitHub Releases에는 이 EXE를 그대로 올리면 됩니다. README와 소스 코드는 저장소 루트에서 관리하며 JSON·PNG·PDB 같은 검사 파일은 배포 폴더에 포함되지 않습니다. Windows에 포함된 .NET Framework C# 컴파일러를 사용하므로 별도 Python 또는 .NET SDK는 필요하지 않습니다.
 
 ### 실행
 
-`publish\app\TaskbarMonitor.exe`를 실행합니다. 또는 `publish\TaskbarMonitor.zip`을 원하는 폴더에 풀고 EXE를 실행합니다. 기본 설정에서는 직접 실행할 때 설정창이 먼저 열립니다. 관리자 권한은 필요하지 않습니다.
+`publish\TaskbarMonitor.exe`를 실행합니다. 기본 설정에서는 직접 실행할 때 설정창이 먼저 열립니다. 관리자 권한은 필요하지 않습니다.
 
 설정 파일은 다음 위치에 저장됩니다.
 
