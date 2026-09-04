@@ -20,11 +20,13 @@ namespace TaskbarMonitor
         private static DateTime lastQuery = DateTime.MinValue;
         private static IntPtr lastTaskbar = IntPtr.Zero;
         private static Rectangle lastBounds = Rectangle.Empty;
+        private static int lastFallbackLeft = Int32.MinValue;
         private static TaskbarFreeSlot cachedSlot;
 
         public static TaskbarFreeSlot GetFreeSlot(IntPtr taskbar, Rectangle taskbarBounds, int fallbackLeft)
         {
-            if (taskbar == lastTaskbar && taskbarBounds == lastBounds && (DateTime.UtcNow - lastQuery).TotalSeconds < 10.0)
+            if (taskbar == lastTaskbar && taskbarBounds == lastBounds && fallbackLeft == lastFallbackLeft &&
+                (DateTime.UtcNow - lastQuery).TotalSeconds < 10.0)
                 return cachedSlot;
 
             TaskbarFreeSlot slot = new TaskbarFreeSlot();
@@ -53,6 +55,7 @@ namespace TaskbarMonitor
             lastQuery = DateTime.UtcNow;
             lastTaskbar = taskbar;
             lastBounds = taskbarBounds;
+            lastFallbackLeft = fallbackLeft;
             cachedSlot = slot;
             return slot;
         }
@@ -371,7 +374,7 @@ namespace TaskbarMonitor
                     widgetForm.UpdateData(settings, snapshot, history);
                     lastWidgetRefresh = now;
                 }
-                if (!configurationUiOpen) widgetForm.MaintainTaskbarLayer();
+                if (ShouldMaintainTaskbarLayer(contextMenu.Visible)) widgetForm.MaintainTaskbarLayer();
             }
             if (sampleChanged) UpdateTrayTooltip();
             if (sampleChanged && settingsForm != null && !settingsForm.IsDisposed)
@@ -430,6 +433,14 @@ namespace TaskbarMonitor
             if (String.Equals(hiddenMeasurementMode, "Throttle", StringComparison.OrdinalIgnoreCase))
                 return (nowUtc - lastHiddenSampleUtc).TotalSeconds >= 5.0;
             return true;
+        }
+
+        internal static bool ShouldMaintainTaskbarLayer(bool contextMenuVisible)
+        {
+            // Keeping the taskbar layer does not repaint or activate the widget,
+            // so it is safe while the settings form is open. Pause it only while
+            // the widget's own context menu is visible to avoid covering the menu.
+            return !contextMenuVisible;
         }
 
         private void UpdateTrayTooltip()
@@ -961,10 +972,11 @@ namespace TaskbarMonitor
             bool fullscreenChanged = fullscreenActive != fullscreen;
             fullscreenActive = fullscreen;
             string mode = host.Settings.FullscreenMode;
-            hiddenForFullscreen = fullscreen && String.Equals(mode, "Hide", StringComparison.OrdinalIgnoreCase);
+            hiddenForFullscreen = ShouldHideForEnvironment(settingsOpen, fullscreen,
+                String.Equals(mode, "Hide", StringComparison.OrdinalIgnoreCase));
             fullscreenClickThrough = fullscreen && String.Equals(mode, "ClickThrough", StringComparison.OrdinalIgnoreCase);
-            hiddenForShellFlyout = shellFlyout &&
-                String.Equals(host.Settings.PositionMode, "Inside", StringComparison.OrdinalIgnoreCase);
+            hiddenForShellFlyout = ShouldHideForEnvironment(settingsOpen, shellFlyout,
+                String.Equals(host.Settings.PositionMode, "Inside", StringComparison.OrdinalIgnoreCase));
             UpdateClickThrough();
             ApplyAutomaticVisibility(monitoring);
             if (fullscreenChanged) ApplyFloatingWindowOrder(false);
@@ -972,7 +984,10 @@ namespace TaskbarMonitor
 
         public void MaintainTaskbarLayer()
         {
-            if (!embedded || !Visible || settingsOpen || hiddenForShellFlyout) return;
+            if (!Visible || hiddenForShellFlyout) return;
+            if (String.Equals(host.Settings.PositionMode, "Inside", StringComparison.OrdinalIgnoreCase))
+                PositionWidget();
+            if (!embedded) return;
             NativeMethods.SetWindowPos(Handle, NativeMethods.HWND_TOPMOST, 0, 0, 0, 0,
                 NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE |
                 NativeMethods.SWP_SHOWWINDOW);
@@ -997,6 +1012,14 @@ namespace TaskbarMonitor
         internal static bool ShouldAcceptWidgetInput(bool interactionEnabled, bool fullscreenPassThrough)
         {
             return interactionEnabled && !fullscreenPassThrough;
+        }
+
+        internal static bool ShouldHideForEnvironment(bool settingsOpen, bool environmentActive, bool hideModeEnabled)
+        {
+            // An already-running widget is part of the live settings preview.
+            // Keep it visible while the settings form is open, then resume the
+            // selected fullscreen and shell-flyout behavior after it closes.
+            return !settingsOpen && environmentActive && hideModeEnabled;
         }
 
         private void ApplyAutomaticVisibility(bool monitoring)

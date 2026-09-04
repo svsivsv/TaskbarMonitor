@@ -151,6 +151,15 @@ namespace TaskbarMonitor
                     WidgetForm.CalculateInsideWidgetWidth(false, 560, 284, 344) == 284 &&
                     WidgetForm.CalculateInsideWidgetWidth(false, 560, 500, 344) == 344;
                 report["insideAutoFitWidthPassed"] = insideAutoFitWidthPassed;
+                bool taskbarLayerPolicyPassed = AppHost.ShouldMaintainTaskbarLayer(false) &&
+                    !AppHost.ShouldMaintainTaskbarLayer(true);
+                report["taskbarLayerPolicyPassed"] = taskbarLayerPolicyPassed;
+                bool settingsVisibilityPolicyPassed =
+                    !WidgetForm.ShouldHideForEnvironment(true, true, true) &&
+                    WidgetForm.ShouldHideForEnvironment(false, true, true) &&
+                    !WidgetForm.ShouldHideForEnvironment(false, false, true) &&
+                    !WidgetForm.ShouldHideForEnvironment(false, true, false);
+                report["settingsVisibilityPolicyPassed"] = settingsVisibilityPolicyPassed;
                 DateTime samplingNow = new DateTime(2026, 1, 1, 0, 0, 10, DateTimeKind.Utc);
                 bool hiddenSamplingPolicyPassed =
                     AppHost.ShouldSampleMetrics(false, "Stop", samplingNow, samplingNow) &&
@@ -362,7 +371,7 @@ namespace TaskbarMonitor
                         snapshot.DiskPercents != null && snapshot.DiskPercents.Count == settings.SelectedDisks.Count &&
                         multiDiskDisplayCount == expectedMultiDiskDisplayCount && pagingPassed &&
                         defaultResetPassed && temperatureMigrationPassed && temperatureRetentionPassed && temperatureBearingLayoutPassed &&
-                        insideAutoFitWidthPassed &&
+                        insideAutoFitWidthPassed && taskbarLayerPolicyPassed && settingsVisibilityPolicyPassed &&
                         temperatureReadingsPlausible && temperatureFormattingPassed &&
                         hiddenSamplingPolicyPassed && insideStyleRenderingPassed && popupResizeCalculationPassed &&
                         widgetInputPolicyPassed && contextMenuAutoDismissConfigured &&

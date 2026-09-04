@@ -614,7 +614,7 @@ namespace TaskbarMonitor
                 bool seamless = inside && String.Equals(working.InsideStyle, "Seamless", StringComparison.OrdinalIgnoreCase);
                 preview.SetIntegratedStyle(inside, Color.FromArgb(31, 31, 31), seamless);
                 preview.Configure(working, lastSnapshot, lastHistory);
-                preview.Width = Math.Min(preview.Parent.ClientSize.Width - 20, preview.GetPreferredWidth());
+                preview.Width = GetPreviewWidth(inside);
                 preview.Height = inside ? working.InsideHeight : 48;
             }
             catch
@@ -633,8 +633,31 @@ namespace TaskbarMonitor
             bool seamless = inside && String.Equals(working.InsideStyle, "Seamless", StringComparison.OrdinalIgnoreCase);
             preview.SetIntegratedStyle(inside, Color.FromArgb(31, 31, 31), seamless);
             preview.Configure(working, snapshot, history);
-            preview.Width = Math.Min(preview.Parent.ClientSize.Width - 20, preview.GetPreferredWidth());
+            preview.Width = GetPreviewWidth(inside);
             preview.Height = inside ? working.InsideHeight : 48;
+        }
+
+        private int GetPreviewWidth(bool inside)
+        {
+            int containerWidth = Math.Max(1, preview.Parent.ClientSize.Width - 20);
+            int preferredWidth = preview.GetPreferredWidth();
+            if (inside && working.AutoFit)
+            {
+                try
+                {
+                    IntPtr taskbarHandle = NativeMethods.GetPrimaryTaskbarHandle();
+                    Rectangle taskbar = NativeMethods.GetPrimaryTaskbarBounds();
+                    TaskbarFreeSlot freeSlot = TaskbarLayoutProbe.GetFreeSlot(taskbarHandle, taskbar, working.TaskbarOffset);
+                    int rightLimit = Math.Min(freeSlot.Right, taskbar.Width - 8);
+                    int availableWidth = Math.Max(1, rightLimit - freeSlot.Left);
+                    preferredWidth = WidgetForm.CalculateInsideWidgetWidth(true, working.MaxWidth,
+                        preferredWidth, availableWidth);
+                }
+                catch
+                {
+                }
+            }
+            return Math.Max(1, Math.Min(containerWidth, preferredWidth));
         }
 
         private void SaveAndStart(object sender, EventArgs e)
