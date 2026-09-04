@@ -145,6 +145,12 @@ namespace TaskbarMonitor
                     MetricBarControl.CanKeepTemperatureUnscaled(82, 82) &&
                     !MetricBarControl.CanKeepTemperatureUnscaled(88, 64);
                 report["temperatureBearingLayoutPassed"] = temperatureBearingLayoutPassed;
+                bool insideAutoFitWidthPassed =
+                    WidgetForm.CalculateInsideWidgetWidth(true, 560, 284, 344) == 344 &&
+                    WidgetForm.CalculateInsideWidgetWidth(true, 300, 284, 344) == 300 &&
+                    WidgetForm.CalculateInsideWidgetWidth(false, 560, 284, 344) == 284 &&
+                    WidgetForm.CalculateInsideWidgetWidth(false, 560, 500, 344) == 344;
+                report["insideAutoFitWidthPassed"] = insideAutoFitWidthPassed;
                 DateTime samplingNow = new DateTime(2026, 1, 1, 0, 0, 10, DateTimeKind.Utc);
                 bool hiddenSamplingPolicyPassed =
                     AppHost.ShouldSampleMetrics(false, "Stop", samplingNow, samplingNow) &&
@@ -356,6 +362,7 @@ namespace TaskbarMonitor
                         snapshot.DiskPercents != null && snapshot.DiskPercents.Count == settings.SelectedDisks.Count &&
                         multiDiskDisplayCount == expectedMultiDiskDisplayCount && pagingPassed &&
                         defaultResetPassed && temperatureMigrationPassed && temperatureRetentionPassed && temperatureBearingLayoutPassed &&
+                        insideAutoFitWidthPassed &&
                         temperatureReadingsPlausible && temperatureFormattingPassed &&
                         hiddenSamplingPolicyPassed && insideStyleRenderingPassed && popupResizeCalculationPassed &&
                         widgetInputPolicyPassed && contextMenuAutoDismissConfigured &&

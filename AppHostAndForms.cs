@@ -930,12 +930,20 @@ namespace TaskbarMonitor
                 height = Math.Max(20, Math.Min(settings.InsideHeight, taskbar.Height - 6));
                 int rightLimit = Math.Min(freeSlot.Right, taskbar.Width - 8);
                 int available = Math.Max(1, rightLimit - x);
-                width = Math.Max(1, Math.Min(width, available));
+                width = CalculateInsideWidgetWidth(settings.AutoFit, settings.MaxWidth, width, available);
                 y = Math.Max(2, (taskbar.Height - height) / 2);
                 int screenX = taskbar.Left + x;
                 int screenY = taskbar.Top + y;
                 SetPositionIfNeeded(screenX, screenY, width, height);
             }
+        }
+
+        internal static int CalculateInsideWidgetWidth(bool autoFit, int maximumWidth, int preferredWidth, int availableWidth)
+        {
+            int available = Math.Max(1, availableWidth);
+            int maximum = Math.Max(1, maximumWidth);
+            if (autoFit) return Math.Min(maximum, available);
+            return Math.Min(Math.Max(1, preferredWidth), available);
         }
 
         private void SetPositionIfNeeded(int x, int y, int width, int height)

@@ -55,12 +55,30 @@ namespace TaskbarMonitor
             Size = new Size(Math.Max(680, Math.Min(800, workingArea.Width - 32)),
                 Math.Max(620, Math.Min(1040, workingArea.Height - 32)));
             MinimumSize = new Size(680, 600);
-            AutoScroll = true;
-            AutoScrollMinSize = new Size(0, 1000);
+            AutoScroll = false;
             AutoScaleMode = AutoScaleMode.Dpi;
             Font = new Font("Segoe UI", 9.0f);
             BackColor = Color.FromArgb(245, 245, 245);
             TopMost = false;
+
+            TableLayoutPanel formLayout = new TableLayoutPanel();
+            formLayout.Dock = DockStyle.Fill;
+            formLayout.Margin = Padding.Empty;
+            formLayout.Padding = Padding.Empty;
+            formLayout.ColumnCount = 1;
+            formLayout.RowCount = 2;
+            formLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100.0f));
+            formLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100.0f));
+            formLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 52.0f));
+            Controls.Add(formLayout);
+
+            Panel contentPanel = new Panel();
+            contentPanel.Dock = DockStyle.Fill;
+            contentPanel.Margin = Padding.Empty;
+            contentPanel.AutoScroll = true;
+            contentPanel.AutoScrollMinSize = new Size(0, 940);
+            contentPanel.BackColor = BackColor;
+            formLayout.Controls.Add(contentPanel, 0, 0);
             helpTip = new ToolTip();
             helpTip.ToolTipTitle = "설정 설명";
             helpTip.ToolTipIcon = ToolTipIcon.Info;
@@ -74,20 +92,20 @@ namespace TaskbarMonitor
             title.Font = new Font("Segoe UI", 15.0f, FontStyle.Bold);
             title.AutoSize = true;
             title.Location = new Point(18, 15);
-            Controls.Add(title);
+            contentPanel.Controls.Add(title);
 
             Label explanation = new Label();
             explanation.Text = "항목별로 온도·숫자·그래프를 따로 켜고 끌 수 있습니다. 각 설정 위에 마우스를 올리면 상세 설명이 표시됩니다.";
             explanation.AutoSize = true;
             explanation.ForeColor = Color.DimGray;
             explanation.Location = new Point(20, 46);
-            Controls.Add(explanation);
+            contentPanel.Controls.Add(explanation);
 
             metricGrid = CreateMetricGrid();
             metricGrid.Location = new Point(18, 76);
             metricGrid.Size = new Size(748, 232);
             metricGrid.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-            Controls.Add(metricGrid);
+            contentPanel.Controls.Add(metricGrid);
 
             FlowLayoutPanel metricButtons = new FlowLayoutPanel();
             metricButtons.Location = new Point(18, 315);
@@ -100,7 +118,7 @@ namespace TaskbarMonitor
             metricButtons.Controls.Add(NewButton("그래프 해제", delegate { SetAllGraphs(false); }));
             metricButtons.Controls.Add(NewButton("▲ 위로", delegate { MoveSelected(-1); }));
             metricButtons.Controls.Add(NewButton("▼ 아래로", delegate { MoveSelected(1); }));
-            Controls.Add(metricButtons);
+            contentPanel.Controls.Add(metricButtons);
 
             GroupBox previewGroup = new GroupBox();
             previewGroup.Text = "실시간 미리 보기";
@@ -112,14 +130,14 @@ namespace TaskbarMonitor
             preview.Size = new Size(726, 48);
             preview.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             previewGroup.Controls.Add(preview);
-            Controls.Add(previewGroup);
+            contentPanel.Controls.Add(previewGroup);
 
             GroupBox globalGroup = new GroupBox();
             globalGroup.Text = "크기·동작·성능";
             globalGroup.Location = new Point(18, 446);
             globalGroup.Size = new Size(748, 270);
             globalGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-            Controls.Add(globalGroup);
+            contentPanel.Controls.Add(globalGroup);
 
             TableLayoutPanel table = new TableLayoutPanel();
             table.Dock = DockStyle.Fill;
@@ -228,7 +246,7 @@ namespace TaskbarMonitor
             foreach (string diskName in diskNames.OrderBy(delegate(string name) { return name; }))
                 diskList.Items.Add(diskName, working.SelectedDisks.Contains(diskName, StringComparer.OrdinalIgnoreCase));
             diskGroup.Controls.Add(diskList);
-            Controls.Add(diskGroup);
+            contentPanel.Controls.Add(diskGroup);
 
             ConfigureHelpText();
 
@@ -247,14 +265,16 @@ namespace TaskbarMonitor
                 "세 표시 모드는 설정과 우클릭 메뉴에서 언제든 바로 전환할 수 있습니다. 별도 상세 그래프 창은 열지 않습니다.\r\n" +
                 "숨김 중 측정의 기본값은 '완전히 중지'입니다. 5초 간격과 계속 측정은 숨겨진 동안에도 기록이 필요한 경우에만 선택하세요.";
             helpGroup.Controls.Add(helpText);
-            Controls.Add(helpGroup);
+            contentPanel.Controls.Add(helpGroup);
 
             FlowLayoutPanel bottom = new FlowLayoutPanel();
             bottom.FlowDirection = FlowDirection.RightToLeft;
             bottom.WrapContents = false;
-            bottom.Location = new Point(18, 942);
-            bottom.Size = new Size(748, 43);
-            bottom.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            bottom.Dock = DockStyle.Fill;
+            bottom.Margin = Padding.Empty;
+            bottom.Padding = new Padding(12, 7, 12, 5);
+            bottom.BackColor = Color.FromArgb(245, 245, 245);
+            bottom.BorderStyle = BorderStyle.FixedSingle;
             Button startButton = NewButton("저장하고 표시 적용", SaveAndStart);
             startButton.AutoSize = true;
             startButton.Height = 32;
@@ -274,7 +294,7 @@ namespace TaskbarMonitor
             applyStatus.Margin = new Padding(12, 9, 3, 3);
             bottom.Controls.Add(applyStatus);
             bottom.Controls.Add(resetButton);
-            Controls.Add(bottom);
+            formLayout.Controls.Add(bottom, 0, 1);
             AcceptButton = startButton;
 
             LoadMetricRows();
