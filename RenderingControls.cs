@@ -208,11 +208,23 @@ namespace TaskbarMonitor
                     totalWeight += weights[index];
                 }
                 int usedWidth = 0;
+                double[] fractions = new double[shown];
                 for (int index = 0; index < shown; index++)
                 {
-                    itemWidths[index] = index == shown - 1 ? contentWidth - usedWidth :
-                        Math.Max(1, (int)Math.Round(contentWidth * weights[index] / (double)Math.Max(1, totalWeight)));
+                    double exactWidth = contentWidth * weights[index] / (double)Math.Max(1, totalWeight);
+                    itemWidths[index] = Math.Max(1, (int)Math.Floor(exactWidth));
+                    fractions[index] = exactWidth - Math.Floor(exactWidth);
                     usedWidth += itemWidths[index];
+                }
+                int remainder = Math.Max(0, contentWidth - usedWidth);
+                while (remainder > 0)
+                {
+                    int bestIndex = 0;
+                    for (int index = 1; index < shown; index++)
+                        if (fractions[index] > fractions[bestIndex]) bestIndex = index;
+                    itemWidths[bestIndex]++;
+                    fractions[bestIndex] = -1.0;
+                    remainder--;
                 }
             }
             else
@@ -225,8 +237,8 @@ namespace TaskbarMonitor
             float labelSize = integratedStyle ? Math.Max(7.0f, settings.FontSize - 0.7f) : settings.FontSize;
             using (Font labelFont = new Font("Segoe UI", labelSize, FontStyle.Regular, GraphicsUnit.Point))
             using (Font valueFont = new Font("Segoe UI", Math.Max(7.0f, labelSize - 0.4f), FontStyle.Bold, GraphicsUnit.Point))
-            using (Font temperatureFont = new Font("Bahnschrift Condensed", labelSize + 0.5f,
-                FontStyle.Bold, GraphicsUnit.Point))
+            using (Font temperatureFont = new Font("Segoe UI", Math.Max(7.0f, labelSize - 1.0f),
+                FontStyle.Regular, GraphicsUnit.Point))
             {
                 int x = 1 + navigationWidth;
                 for (int visibleIndex = 0; visibleIndex < shown; visibleIndex++)
@@ -312,9 +324,7 @@ namespace TaskbarMonitor
                 using (Pen separator = new Pen(Color.FromArgb(55, foreground)))
                     graphics.DrawLine(separator, bounds.Left, bounds.Top + 4, bounds.Left, bounds.Bottom - 4);
             }
-            bool temperatureMetric = option.ShowTemperature &&
-                (option.Kind == MetricKind.Cpu || option.Kind == MetricKind.Gpu);
-            int padding = bounds.Width < 60 ? 2 : (integratedStyle ? (temperatureMetric ? 2 : 3) : 6);
+            int padding = integratedStyle ? 1 : (bounds.Width < 60 ? 2 : 6);
             Rectangle inner = new Rectangle(bounds.Left + padding, bounds.Top + 1, Math.Max(1, bounds.Width - padding * 2), Math.Max(1, bounds.Height - 2));
             bool veryNarrow = bounds.Width < 62;
             bool compact = bounds.Width < 92;

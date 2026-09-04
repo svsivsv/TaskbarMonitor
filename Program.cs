@@ -131,6 +131,10 @@ namespace TaskbarMonitor
                     migratedSettings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Cpu; }).ShowTemperature &&
                     migratedSettings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Gpu; }).ShowTemperature;
                 report["temperatureMigrationPassed"] = temperatureMigrationPassed;
+                bool temperatureRetentionPassed = MetricSampler.PreserveLastTemperature(48.0, null) == 48.0 &&
+                    MetricSampler.PreserveLastTemperature(48.0, 51.0) == 51.0 &&
+                    !MetricSampler.PreserveLastTemperature(null, null).HasValue;
+                report["temperatureRetentionPassed"] = temperatureRetentionPassed;
                 DateTime samplingNow = new DateTime(2026, 1, 1, 0, 0, 10, DateTimeKind.Utc);
                 bool hiddenSamplingPolicyPassed =
                     AppHost.ShouldSampleMetrics(false, "Stop", samplingNow, samplingNow) &&
@@ -341,7 +345,8 @@ namespace TaskbarMonitor
                         snapshot.CpuPercent <= 100.0 && desktopExcluded && memoryFormatSupported &&
                         snapshot.DiskPercents != null && snapshot.DiskPercents.Count == settings.SelectedDisks.Count &&
                         multiDiskDisplayCount == expectedMultiDiskDisplayCount && pagingPassed &&
-                        defaultResetPassed && temperatureMigrationPassed && temperatureReadingsPlausible && temperatureFormattingPassed &&
+                        defaultResetPassed && temperatureMigrationPassed && temperatureRetentionPassed &&
+                        temperatureReadingsPlausible && temperatureFormattingPassed &&
                         hiddenSamplingPolicyPassed && insideStyleRenderingPassed && popupResizeCalculationPassed &&
                         widgetInputPolicyPassed && contextMenuAutoDismissConfigured &&
                         clickThroughNativeStatePassed && runtimeInteractionMatchesSettings && disabledDoubleClickSuppressed &&
@@ -505,6 +510,7 @@ namespace TaskbarMonitor
                 compactSettings.AutoFit = true;
                 compactSettings.OverflowPaging = false;
                 compactSettings.SelectedDisks = new List<string> { "C:" };
+                compactSettings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Memory; }).ValueFormat = "Percent";
                 compactBar.Size = new Size(344, 28);
                 compactBar.SetIntegratedStyle(true, Color.FromArgb(31, 31, 31));
                 compactBar.Configure(compactSettings, snapshot, history);

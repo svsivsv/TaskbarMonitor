@@ -262,12 +262,25 @@ namespace TaskbarMonitor
                 (now - lastTemperatureSampleTimestamp) / (double)Stopwatch.Frequency >= 2.0;
             if (due && (cpuEnabled || gpuEnabled))
             {
-                if (cpuEnabled) cachedCpuTemperature = ReadCpuTemperature();
-                if (gpuEnabled) cachedGpuTemperature = ReadGpuTemperature();
+                if (cpuEnabled)
+                {
+                    double? cpuTemperature = ReadCpuTemperature();
+                    cachedCpuTemperature = PreserveLastTemperature(cachedCpuTemperature, cpuTemperature);
+                }
+                if (gpuEnabled)
+                {
+                    double? gpuTemperature = ReadGpuTemperature();
+                    cachedGpuTemperature = PreserveLastTemperature(cachedGpuTemperature, gpuTemperature);
+                }
                 lastTemperatureSampleTimestamp = now;
             }
             result.CpuTemperatureC = cachedCpuTemperature;
             result.GpuTemperatureC = cachedGpuTemperature;
+        }
+
+        internal static double? PreserveLastTemperature(double? previous, double? current)
+        {
+            return current.HasValue ? current : previous;
         }
 
         private double? ReadCpuTemperature()
@@ -491,8 +504,8 @@ namespace TaskbarMonitor
 
     internal sealed class NvmlTemperatureReader : IDisposable
     {
-        private bool initializationAttempted;
         private bool initialized;
+        private long lastInitializationAttemptTimestamp;
 
         public double? ReadMaximum()
         {
@@ -523,8 +536,12 @@ namespace TaskbarMonitor
 
         private bool EnsureInitialized()
         {
-            if (initializationAttempted) return initialized;
-            initializationAttempted = true;
+            if (initialized) return true;
+            long now = Stopwatch.GetTimestamp();
+            if (lastInitializationAttemptTimestamp != 0 &&
+                (now - lastInitializationAttemptTimestamp) / (double)Stopwatch.Frequency < 10.0)
+                return false;
+            lastInitializationAttemptTimestamp = now;
             try { initialized = NvmlNative.nvmlInit_v2() == 0; }
             catch { initialized = false; }
             return initialized;
