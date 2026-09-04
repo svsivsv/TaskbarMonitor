@@ -141,6 +141,10 @@ namespace TaskbarMonitor
                     MetricSampler.PreserveLastTemperature(48.0, 51.0) == 51.0 &&
                     !MetricSampler.PreserveLastTemperature(null, null).HasValue;
                 report["temperatureRetentionPassed"] = temperatureRetentionPassed;
+                bool temperatureBearingLayoutPassed = MetricBarControl.CanKeepTemperatureUnscaled(88, 82) &&
+                    MetricBarControl.CanKeepTemperatureUnscaled(82, 82) &&
+                    !MetricBarControl.CanKeepTemperatureUnscaled(88, 64);
+                report["temperatureBearingLayoutPassed"] = temperatureBearingLayoutPassed;
                 DateTime samplingNow = new DateTime(2026, 1, 1, 0, 0, 10, DateTimeKind.Utc);
                 bool hiddenSamplingPolicyPassed =
                     AppHost.ShouldSampleMetrics(false, "Stop", samplingNow, samplingNow) &&
@@ -351,7 +355,7 @@ namespace TaskbarMonitor
                         snapshot.CpuPercent <= 100.0 && desktopExcluded && memoryFormatSupported &&
                         snapshot.DiskPercents != null && snapshot.DiskPercents.Count == settings.SelectedDisks.Count &&
                         multiDiskDisplayCount == expectedMultiDiskDisplayCount && pagingPassed &&
-                        defaultResetPassed && temperatureMigrationPassed && temperatureRetentionPassed &&
+                        defaultResetPassed && temperatureMigrationPassed && temperatureRetentionPassed && temperatureBearingLayoutPassed &&
                         temperatureReadingsPlausible && temperatureFormattingPassed &&
                         hiddenSamplingPolicyPassed && insideStyleRenderingPassed && popupResizeCalculationPassed &&
                         widgetInputPolicyPassed && contextMenuAutoDismissConfigured &&

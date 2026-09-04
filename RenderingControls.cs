@@ -315,8 +315,22 @@ namespace TaskbarMonitor
             int temperatureSpace = Math.Max(0, inner.Width - measuredLabelWidth - valueWidth);
             int temperatureWidth = Math.Min(measuredTemperatureWidth, temperatureSpace);
             int labelWidth = Math.Max(1, inner.Width - valueWidth - temperatureWidth);
+            int temperatureLeft = inner.Left + labelWidth;
+            int requiredTextWidth = measuredLabelWidth + measuredTemperatureWidth + measuredValueWidth;
+            int bearingShortage = requiredTextWidth - inner.Width;
+            if (measuredTemperatureWidth > 0 && bearingShortage > 0 &&
+                CanKeepTemperatureUnscaled(requiredTextWidth, inner.Width))
+            {
+                // TextRenderer's measured width includes side bearings that can
+                // safely overlap a little. Keep the original glyph proportions
+                // when only those invisible margins exceed the metric cell.
+                labelWidth = Math.Min(measuredLabelWidth, inner.Width);
+                valueWidth = Math.Min(measuredValueWidth, inner.Width);
+                temperatureWidth = measuredTemperatureWidth;
+                temperatureLeft = inner.Left + labelWidth - (bearingShortage + 1) / 2;
+            }
             Rectangle labelRect = new Rectangle(inner.Left, inner.Top, labelWidth, textHeight);
-            Rectangle temperatureRect = new Rectangle(labelRect.Right, inner.Top,
+            Rectangle temperatureRect = new Rectangle(temperatureLeft, inner.Top,
                 temperatureWidth, textHeight);
             Rectangle valueRect = new Rectangle(inner.Right - valueWidth, inner.Top, valueWidth, textHeight);
             TextRenderer.DrawText(graphics, item.Label, labelFont, labelRect, option.Color,
@@ -341,6 +355,11 @@ namespace TaskbarMonitor
                 TextRenderer.DrawText(graphics, item.Label, valueFont, centered, option.Color,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
             }
+        }
+
+        internal static bool CanKeepTemperatureUnscaled(int requiredWidth, int availableWidth)
+        {
+            return requiredWidth <= availableWidth + 8;
         }
 
         private static void DrawTemperatureText(Graphics graphics, string text, Font font, Rectangle bounds,
