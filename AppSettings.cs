@@ -23,6 +23,7 @@ namespace TaskbarMonitor
         public string Label { get; set; }
         public bool Enabled { get; set; }
         public bool ShowValue { get; set; }
+        public bool ShowTemperature { get; set; }
         public bool ShowGraph { get; set; }
         public string GraphStyle { get; set; }
         public int ColorArgb { get; set; }
@@ -99,7 +100,7 @@ namespace TaskbarMonitor
         public static AppSettings CreateDefault()
         {
             AppSettings value = new AppSettings();
-            value.SettingsVersion = 6;
+            value.SettingsVersion = 7;
             value.UpdateIntervalMs = 1000;
             value.HistorySeconds = 60;
             value.MaxWidth = 560;
@@ -151,6 +152,7 @@ namespace TaskbarMonitor
             item.Label = label;
             item.Enabled = enabled;
             item.ShowValue = true;
+            item.ShowTemperature = kind == MetricKind.Cpu || kind == MetricKind.Gpu;
             item.ShowGraph = true;
             item.GraphStyle = "Line";
             item.ColorArgb = color.ToArgb();
@@ -165,6 +167,7 @@ namespace TaskbarMonitor
         public void EnsureDefaults()
         {
             AppSettings defaults = CreateDefault();
+            bool addTemperatureDefaults = SettingsVersion < 7;
             if (SettingsVersion < 2)
             {
                 WidgetInteractionEnabled = true;
@@ -209,9 +212,13 @@ namespace TaskbarMonitor
                 MetricOption existing = Metrics.FirstOrDefault(delegate(MetricOption m) { return m.Kind == defaultMetric.Kind; });
                 if (existing == null)
                     Metrics.Add(defaultMetric);
-                else if (String.IsNullOrEmpty(existing.ValueFormat))
-                    existing.ValueFormat = defaultMetric.ValueFormat;
+                else
+                {
+                    if (String.IsNullOrEmpty(existing.ValueFormat)) existing.ValueFormat = defaultMetric.ValueFormat;
+                    if (addTemperatureDefaults) existing.ShowTemperature = defaultMetric.ShowTemperature;
+                }
             }
+            if (addTemperatureDefaults) SettingsVersion = 7;
             if (UpdateIntervalMs < 200) UpdateIntervalMs = defaults.UpdateIntervalMs;
             if (HistorySeconds < 10) HistorySeconds = defaults.HistorySeconds;
             if (MaxWidth < 160) MaxWidth = defaults.MaxWidth;

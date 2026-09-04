@@ -24,6 +24,8 @@ namespace TaskbarMonitor
         public double NetworkDownloadBytes { get; set; }
         public double NetworkUploadBytes { get; set; }
         public double GpuPercent { get; set; }
+        public double? CpuTemperatureC { get; set; }
+        public double? GpuTemperatureC { get; set; }
 
         public double GetValue(MetricKind kind)
         {
@@ -77,6 +79,16 @@ namespace TaskbarMonitor
                     return Math.Round(value).ToString("0") + "%";
             }
             return FormatValue(option.Kind, compact);
+        }
+
+        public string FormatTemperature(MetricOption option)
+        {
+            if (option == null || !option.ShowTemperature) return String.Empty;
+            double? temperature = option.Kind == MetricKind.Cpu ? CpuTemperatureC :
+                (option.Kind == MetricKind.Gpu ? GpuTemperatureC : null);
+            if (!temperature.HasValue || temperature.Value < -20.0 || temperature.Value > 150.0)
+                return String.Empty;
+            return Math.Round(temperature.Value).ToString("0") + "°";
         }
 
         public static string FormatRate(double bytesPerSecond)
@@ -199,6 +211,11 @@ namespace TaskbarMonitor
         private PdhSingleCounter diskCounter;
         private PdhWildcardCounter logicalDiskCounter;
         private PdhWildcardCounter gpuCounter;
+        private PdhWildcardCounter cpuTemperatureCounter;
+        private NvmlTemperatureReader gpuTemperatureReader;
+        private long lastTemperatureSampleTimestamp;
+        private double? cachedCpuTemperature;
+        private double? cachedGpuTemperature;
 
         public MetricSampler()
         {
@@ -219,7 +236,65 @@ namespace TaskbarMonitor
             }
             else
                 ReleaseGpuCounter();
+            SampleTemperatures(result, settings);
             return result;
+        }
+
+        private void SampleTemperatures(MetricSnapshot result, AppSettings settings)
+        {
+            MetricOption cpu = settings.Metrics.FirstOrDefault(delegate(MetricOption option) { return option.Kind == MetricKind.Cpu; });
+            MetricOption gpu = settings.Metrics.FirstOrDefault(delegate(MetricOption option) { return option.Kind == MetricKind.Gpu; });
+            bool cpuEnabled = cpu != null && cpu.Enabled && cpu.ShowTemperature;
+            bool gpuEnabled = gpu != null && gpu.Enabled && gpu.ShowTemperature;
+            if (!cpuEnabled)
+            {
+                ReleaseCpuTemperatureCounter();
+                cachedCpuTemperature = null;
+            }
+            if (!gpuEnabled)
+            {
+                ReleaseGpuTemperatureReader();
+                cachedGpuTemperature = null;
+            }
+
+            long now = Stopwatch.GetTimestamp();
+            bool due = lastTemperatureSampleTimestamp == 0 ||
+                (now - lastTemperatureSampleTimestamp) / (double)Stopwatch.Frequency >= 2.0;
+            if (due && (cpuEnabled || gpuEnabled))
+            {
+                if (cpuEnabled) cachedCpuTemperature = ReadCpuTemperature();
+                if (gpuEnabled) cachedGpuTemperature = ReadGpuTemperature();
+                lastTemperatureSampleTimestamp = now;
+            }
+            result.CpuTemperatureC = cachedCpuTemperature;
+            result.GpuTemperatureC = cachedGpuTemperature;
+        }
+
+        private double? ReadCpuTemperature()
+        {
+            if (cpuTemperatureCounter == null)
+            {
+                try
+                {
+                    cpuTemperatureCounter = new PdhWildcardCounter(
+                        @"\Thermal Zone Information(*)\High Precision Temperature");
+                }
+                catch
+                {
+                    cpuTemperatureCounter = null;
+                    return null;
+                }
+            }
+            double? raw = cpuTemperatureCounter.ReadMaximumRaw();
+            if (!raw.HasValue) return null;
+            double celsius = raw.Value > 200.0 ? raw.Value / 10.0 - 273.15 : raw.Value;
+            return celsius >= -20.0 && celsius <= 150.0 ? (double?)celsius : null;
+        }
+
+        private double? ReadGpuTemperature()
+        {
+            if (gpuTemperatureReader == null) gpuTemperatureReader = new NvmlTemperatureReader();
+            return gpuTemperatureReader.ReadMaximum();
         }
 
         private void SampleDisks(MetricSnapshot result, AppSettings settings)
@@ -385,6 +460,20 @@ namespace TaskbarMonitor
             gpuCounter = null;
         }
 
+        private void ReleaseCpuTemperatureCounter()
+        {
+            if (cpuTemperatureCounter == null) return;
+            cpuTemperatureCounter.Dispose();
+            cpuTemperatureCounter = null;
+        }
+
+        private void ReleaseGpuTemperatureReader()
+        {
+            if (gpuTemperatureReader == null) return;
+            gpuTemperatureReader.Dispose();
+            gpuTemperatureReader = null;
+        }
+
         private static double Clamp(double value)
         {
             if (Double.IsNaN(value) || Double.IsInfinity(value)) return 0.0;
@@ -395,7 +484,77 @@ namespace TaskbarMonitor
         {
             ReleaseDiskCounters();
             ReleaseGpuCounter();
+            ReleaseCpuTemperatureCounter();
+            ReleaseGpuTemperatureReader();
         }
+    }
+
+    internal sealed class NvmlTemperatureReader : IDisposable
+    {
+        private bool initializationAttempted;
+        private bool initialized;
+
+        public double? ReadMaximum()
+        {
+            if (!EnsureInitialized()) return null;
+            try
+            {
+                uint count;
+                if (NvmlNative.nvmlDeviceGetCount_v2(out count) != 0 || count == 0) return null;
+                uint maximum = 0;
+                bool found = false;
+                for (uint index = 0; index < count; index++)
+                {
+                    IntPtr device;
+                    uint temperature;
+                    if (NvmlNative.nvmlDeviceGetHandleByIndex_v2(index, out device) != 0) continue;
+                    if (NvmlNative.nvmlDeviceGetTemperature(device, 0, out temperature) != 0) continue;
+                    if (temperature > 150) continue;
+                    maximum = Math.Max(maximum, temperature);
+                    found = true;
+                }
+                return found ? (double?)maximum : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private bool EnsureInitialized()
+        {
+            if (initializationAttempted) return initialized;
+            initializationAttempted = true;
+            try { initialized = NvmlNative.nvmlInit_v2() == 0; }
+            catch { initialized = false; }
+            return initialized;
+        }
+
+        public void Dispose()
+        {
+            if (!initialized) return;
+            try { NvmlNative.nvmlShutdown(); }
+            catch { }
+            initialized = false;
+        }
+    }
+
+    internal static class NvmlNative
+    {
+        [DllImport("nvml.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int nvmlInit_v2();
+
+        [DllImport("nvml.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int nvmlShutdown();
+
+        [DllImport("nvml.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int nvmlDeviceGetCount_v2(out uint deviceCount);
+
+        [DllImport("nvml.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int nvmlDeviceGetHandleByIndex_v2(uint index, out IntPtr device);
+
+        [DllImport("nvml.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int nvmlDeviceGetTemperature(IntPtr device, uint sensorType, out uint temperature);
     }
 
     internal static class PdhNative
@@ -526,6 +685,42 @@ namespace TaskbarMonitor
                 }
                 double maximum = engines.Count == 0 ? fallbackMaximum : engines.Values.Max();
                 return Math.Max(0.0, Math.Min(100.0, maximum));
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+        }
+
+        public double? ReadMaximumRaw()
+        {
+            if (query == IntPtr.Zero) return null;
+            if (PdhNative.PdhCollectQueryData(query) != PdhNative.ERROR_SUCCESS) return null;
+            uint bufferSize = 0;
+            uint itemCount = 0;
+            uint status = PdhNative.PdhGetFormattedCounterArray(counter, PdhNative.PDH_FMT_DOUBLE,
+                ref bufferSize, ref itemCount, IntPtr.Zero);
+            if (status != PdhNative.PDH_MORE_DATA || bufferSize == 0 || itemCount == 0) return null;
+            IntPtr buffer = Marshal.AllocHGlobal((int)bufferSize);
+            try
+            {
+                status = PdhNative.PdhGetFormattedCounterArray(counter, PdhNative.PDH_FMT_DOUBLE,
+                    ref bufferSize, ref itemCount, buffer);
+                if (status != PdhNative.ERROR_SUCCESS) return null;
+                int size = Marshal.SizeOf(typeof(PdhNative.PDH_FMT_COUNTERVALUE_ITEM));
+                double maximum = Double.MinValue;
+                bool found = false;
+                for (uint index = 0; index < itemCount; index++)
+                {
+                    IntPtr itemPointer = new IntPtr(buffer.ToInt64() + index * size);
+                    PdhNative.PDH_FMT_COUNTERVALUE_ITEM item = (PdhNative.PDH_FMT_COUNTERVALUE_ITEM)
+                        Marshal.PtrToStructure(itemPointer, typeof(PdhNative.PDH_FMT_COUNTERVALUE_ITEM));
+                    if (item.Value.CStatus > 1 || Double.IsNaN(item.Value.DoubleValue) ||
+                        Double.IsInfinity(item.Value.DoubleValue)) continue;
+                    maximum = Math.Max(maximum, item.Value.DoubleValue);
+                    found = true;
+                }
+                return found ? (double?)maximum : null;
             }
             finally
             {

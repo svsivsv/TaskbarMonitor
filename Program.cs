@@ -114,11 +114,23 @@ namespace TaskbarMonitor
             try
             {
                 AppSettings settings = AppSettings.CreateDefault();
+                MetricOption defaultCpuOption = settings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Cpu; });
+                MetricOption defaultGpuOption = settings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Gpu; });
                 bool defaultResetPassed = settings.UpdateIntervalMs == 1000 && settings.HistorySeconds == 60 &&
                     settings.MaxWidth == 560 && settings.PopupWidth == 500 && settings.PopupHeight == 72 &&
                     settings.PositionMode == "Inside" && settings.HiddenMeasurementMode == "Stop" &&
-                    !settings.OverflowPaging && settings.Metrics.Count == 5;
+                    !settings.OverflowPaging && settings.SettingsVersion == 7 && settings.Metrics.Count == 5 &&
+                    defaultCpuOption.ShowTemperature && defaultGpuOption.ShowTemperature;
                 report["defaultResetPassed"] = defaultResetPassed;
+                AppSettings migratedSettings = AppSettings.CreateDefault();
+                migratedSettings.SettingsVersion = 6;
+                migratedSettings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Cpu; }).ShowTemperature = false;
+                migratedSettings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Gpu; }).ShowTemperature = false;
+                migratedSettings.EnsureDefaults();
+                bool temperatureMigrationPassed = migratedSettings.SettingsVersion == 7 &&
+                    migratedSettings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Cpu; }).ShowTemperature &&
+                    migratedSettings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Gpu; }).ShowTemperature;
+                report["temperatureMigrationPassed"] = temperatureMigrationPassed;
                 DateTime samplingNow = new DateTime(2026, 1, 1, 0, 0, 10, DateTimeKind.Utc);
                 bool hiddenSamplingPolicyPassed =
                     AppHost.ShouldSampleMetrics(false, "Stop", samplingNow, samplingNow) &&
@@ -164,6 +176,19 @@ namespace TaskbarMonitor
                     report["networkDownloadBytes"] = snapshot.NetworkDownloadBytes;
                     report["networkUploadBytes"] = snapshot.NetworkUploadBytes;
                     report["gpuPercent"] = snapshot.GpuPercent;
+                    report["cpuTemperatureC"] = snapshot.CpuTemperatureC;
+                    report["gpuTemperatureC"] = snapshot.GpuTemperatureC;
+                    bool temperatureReadingsPlausible = (!snapshot.CpuTemperatureC.HasValue ||
+                            (snapshot.CpuTemperatureC.Value >= -20.0 && snapshot.CpuTemperatureC.Value <= 150.0)) &&
+                        (!snapshot.GpuTemperatureC.HasValue ||
+                            (snapshot.GpuTemperatureC.Value >= -20.0 && snapshot.GpuTemperatureC.Value <= 150.0));
+                    MetricSnapshot temperatureFormattingSnapshot = new MetricSnapshot();
+                    temperatureFormattingSnapshot.CpuTemperatureC = 57.4;
+                    temperatureFormattingSnapshot.GpuTemperatureC = 50.6;
+                    bool temperatureFormattingPassed = temperatureFormattingSnapshot.FormatTemperature(defaultCpuOption) == "57°" &&
+                        temperatureFormattingSnapshot.FormatTemperature(defaultGpuOption) == "51°";
+                    report["temperatureReadingsPlausible"] = temperatureReadingsPlausible;
+                    report["temperatureFormattingPassed"] = temperatureFormattingPassed;
                     IntPtr desktopWindow = NativeMethods.FindWindow("Progman", null);
                     bool desktopExcluded = !NativeMethods.IsWindowFullscreen(desktopWindow);
                     report["desktopExcludedFromFullscreen"] = desktopExcluded;
@@ -316,7 +341,8 @@ namespace TaskbarMonitor
                         snapshot.CpuPercent <= 100.0 && desktopExcluded && memoryFormatSupported &&
                         snapshot.DiskPercents != null && snapshot.DiskPercents.Count == settings.SelectedDisks.Count &&
                         multiDiskDisplayCount == expectedMultiDiskDisplayCount && pagingPassed &&
-                        defaultResetPassed && hiddenSamplingPolicyPassed && insideStyleRenderingPassed && popupResizeCalculationPassed &&
+                        defaultResetPassed && temperatureMigrationPassed && temperatureReadingsPlausible && temperatureFormattingPassed &&
+                        hiddenSamplingPolicyPassed && insideStyleRenderingPassed && popupResizeCalculationPassed &&
                         widgetInputPolicyPassed && contextMenuAutoDismissConfigured &&
                         clickThroughNativeStatePassed && runtimeInteractionMatchesSettings && disabledDoubleClickSuppressed &&
                         String.Equals(settings.FloatingZOrder, "Normal", StringComparison.OrdinalIgnoreCase) &&
@@ -423,6 +449,8 @@ namespace TaskbarMonitor
             snapshot.NetworkDownloadBytes = 756000;
             snapshot.NetworkUploadBytes = 96000;
             snapshot.GpuPercent = 43;
+            snapshot.CpuTemperatureC = 57;
+            snapshot.GpuTemperatureC = 51;
 
             using (MetricBarControl bar = new MetricBarControl())
             {
@@ -472,12 +500,12 @@ namespace TaskbarMonitor
             {
                 AppSettings compactSettings = settings.Clone();
                 compactSettings.PositionMode = "Inside";
-                compactSettings.MaxWidth = 300;
+                compactSettings.MaxWidth = 344;
                 compactSettings.InsideItemWidth = 70;
                 compactSettings.AutoFit = true;
                 compactSettings.OverflowPaging = false;
                 compactSettings.SelectedDisks = new List<string> { "C:" };
-                compactBar.Size = new Size(300, 28);
+                compactBar.Size = new Size(344, 28);
                 compactBar.SetIntegratedStyle(true, Color.FromArgb(31, 31, 31));
                 compactBar.Configure(compactSettings, snapshot, history);
                 using (Bitmap image = new Bitmap(compactBar.Width, compactBar.Height))

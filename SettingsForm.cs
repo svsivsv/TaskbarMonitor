@@ -77,7 +77,7 @@ namespace TaskbarMonitor
             Controls.Add(title);
 
             Label explanation = new Label();
-            explanation.Text = "항목별로 숫자와 그래프를 따로 켜고 끌 수 있습니다. 각 설정 위에 마우스를 올리면 상세 설명이 표시됩니다.";
+            explanation.Text = "항목별로 온도·숫자·그래프를 따로 켜고 끌 수 있습니다. 각 설정 위에 마우스를 올리면 상세 설명이 표시됩니다.";
             explanation.AutoSize = true;
             explanation.ForeColor = Color.DimGray;
             explanation.Location = new Point(20, 46);
@@ -243,9 +243,9 @@ namespace TaskbarMonitor
             helpText.TextAlign = ContentAlignment.MiddleLeft;
             helpText.Text =
                 "권장값은 갱신 1000ms, 그래프 기록 60초입니다. 갱신 값을 낮추면 더 빠르게 반응하지만 CPU 사용량이 늘 수 있습니다.\r\n" +
+                "온도는 이름과 사용률 사이에 표시합니다. GPU는 NVIDIA 센서, CPU는 Windows ACPI 센서가 제공될 때 표시하며 없으면 생략합니다.\r\n" +
                 "세 표시 모드는 설정과 우클릭 메뉴에서 언제든 바로 전환할 수 있습니다. 별도 상세 그래프 창은 열지 않습니다.\r\n" +
-                "숨김 중 측정의 기본값은 '완전히 중지'입니다. 5초 간격과 계속 측정은 숨겨진 동안에도 그래프 기록이 필요한 경우에만 선택하세요.\r\n" +
-                "설정을 조작하는 동안 실제 위젯 재배치를 멈춰 메뉴·입력창이 닫히지 않게 합니다.";
+                "숨김 중 측정의 기본값은 '완전히 중지'입니다. 5초 간격과 계속 측정은 숨겨진 동안에도 기록이 필요한 경우에만 선택하세요.";
             helpGroup.Controls.Add(helpText);
             Controls.Add(helpGroup);
 
@@ -318,6 +318,13 @@ namespace TaskbarMonitor
             label.FillWeight = 78;
             grid.Columns.Add(label);
 
+            DataGridViewCheckBoxColumn temperature = new DataGridViewCheckBoxColumn();
+            temperature.Name = "Temperature";
+            temperature.HeaderText = "온도";
+            temperature.ToolTipText = "CPU/GPU 온도를 이름과 사용률 사이에 표시합니다. 센서값을 읽을 수 없으면 자동으로 생략합니다.";
+            temperature.FillWeight = 48;
+            grid.Columns.Add(temperature);
+
             DataGridViewCheckBoxColumn value = new DataGridViewCheckBoxColumn();
             value.Name = "Value";
             value.HeaderText = "숫자";
@@ -368,7 +375,7 @@ namespace TaskbarMonitor
 
         private void ConfigureHelpText()
         {
-            helpTip.SetToolTip(metricGrid, "표시 이름은 직접 수정할 수 있습니다. 숫자와 그래프는 서로 독립적으로 켜고 끌 수 있습니다.");
+            helpTip.SetToolTip(metricGrid, "표시 이름은 직접 수정할 수 있습니다. CPU/GPU 온도, 숫자와 그래프는 서로 독립적으로 켜고 끌 수 있습니다. 온도 센서가 없으면 온도만 자동 생략됩니다.");
             helpTip.SetToolTip(intervalInput, "값을 다시 읽는 주기입니다. 1000ms를 권장합니다. 200~500ms는 더 부드럽지만 CPU 사용량이 늘 수 있습니다.");
             helpTip.SetToolTip(historyInput, "미니 그래프가 기억하는 과거 시간입니다. 60초를 권장하며, 길게 잡을수록 메모리를 조금 더 사용합니다.");
             helpTip.SetToolTip(widthInput, "위젯이 차지할 수 있는 최대 가로 폭입니다. 항목이 잘리면 늘리고 작업표시줄이 좁으면 줄이세요.");
@@ -400,10 +407,16 @@ namespace TaskbarMonitor
             metricGrid.Rows.Clear();
             foreach (MetricOption option in working.Metrics.OrderBy(delegate(MetricOption m) { return m.Order; }))
             {
-                int index = metricGrid.Rows.Add(option.Enabled, option.DisplayName, option.Label, option.ShowValue,
-                    option.ShowGraph, ValueFormatDisplay(option), StyleDisplay(option.GraphStyle), "선택");
+                int index = metricGrid.Rows.Add(option.Enabled, option.DisplayName, option.Label, option.ShowTemperature,
+                    option.ShowValue, option.ShowGraph, ValueFormatDisplay(option), StyleDisplay(option.GraphStyle), "선택");
                 DataGridViewRow row = metricGrid.Rows[index];
                 row.Tag = option;
+                if (option.Kind != MetricKind.Cpu && option.Kind != MetricKind.Gpu)
+                {
+                    row.Cells["Temperature"].ReadOnly = true;
+                    row.Cells["Temperature"].Style.ForeColor = Color.Gray;
+                    row.Cells["Temperature"].Style.BackColor = Color.FromArgb(238, 238, 238);
+                }
                 if (option.Kind != MetricKind.Memory)
                 {
                     row.Cells["Format"].ReadOnly = true;
@@ -507,6 +520,8 @@ namespace TaskbarMonitor
                 MetricOption option = (MetricOption)row.Tag;
                 option.Enabled = Convert.ToBoolean(row.Cells["Enabled"].Value ?? false);
                 option.Label = Convert.ToString(row.Cells["Label"].Value) ?? option.DisplayName;
+                option.ShowTemperature = (option.Kind == MetricKind.Cpu || option.Kind == MetricKind.Gpu) &&
+                    Convert.ToBoolean(row.Cells["Temperature"].Value ?? false);
                 option.ShowValue = Convert.ToBoolean(row.Cells["Value"].Value ?? false);
                 option.ShowGraph = Convert.ToBoolean(row.Cells["Graph"].Value ?? false);
                 if (option.Kind == MetricKind.Memory)
