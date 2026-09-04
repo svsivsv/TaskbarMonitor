@@ -119,17 +119,23 @@ namespace TaskbarMonitor
                 bool defaultResetPassed = settings.UpdateIntervalMs == 1000 && settings.HistorySeconds == 60 &&
                     settings.MaxWidth == 560 && settings.PopupWidth == 500 && settings.PopupHeight == 72 &&
                     settings.PositionMode == "Inside" && settings.HiddenMeasurementMode == "Stop" &&
-                    !settings.OverflowPaging && settings.SettingsVersion == 7 && settings.Metrics.Count == 5 &&
-                    defaultCpuOption.ShowTemperature && defaultGpuOption.ShowTemperature;
+                    !settings.OverflowPaging && settings.SettingsVersion == 8 && settings.Metrics.Count == 5 &&
+                    defaultCpuOption.ShowTemperature && defaultGpuOption.ShowTemperature &&
+                    defaultCpuOption.TemperatureColorArgb == Color.FromArgb(255, 184, 74).ToArgb() &&
+                    defaultGpuOption.TemperatureColorArgb == Color.FromArgb(255, 184, 74).ToArgb();
                 report["defaultResetPassed"] = defaultResetPassed;
                 AppSettings migratedSettings = AppSettings.CreateDefault();
                 migratedSettings.SettingsVersion = 6;
                 migratedSettings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Cpu; }).ShowTemperature = false;
                 migratedSettings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Gpu; }).ShowTemperature = false;
                 migratedSettings.EnsureDefaults();
-                bool temperatureMigrationPassed = migratedSettings.SettingsVersion == 7 &&
+                bool temperatureMigrationPassed = migratedSettings.SettingsVersion == 8 &&
                     migratedSettings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Cpu; }).ShowTemperature &&
-                    migratedSettings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Gpu; }).ShowTemperature;
+                    migratedSettings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Gpu; }).ShowTemperature &&
+                    migratedSettings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Cpu; }).TemperatureColorArgb ==
+                        Color.FromArgb(255, 184, 74).ToArgb() &&
+                    migratedSettings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Gpu; }).TemperatureColorArgb ==
+                        Color.FromArgb(255, 184, 74).ToArgb();
                 report["temperatureMigrationPassed"] = temperatureMigrationPassed;
                 bool temperatureRetentionPassed = MetricSampler.PreserveLastTemperature(48.0, null) == 48.0 &&
                     MetricSampler.PreserveLastTemperature(48.0, 51.0) == 51.0 &&

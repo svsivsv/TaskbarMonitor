@@ -24,6 +24,7 @@ namespace TaskbarMonitor
         public bool Enabled { get; set; }
         public bool ShowValue { get; set; }
         public bool ShowTemperature { get; set; }
+        public int TemperatureColorArgb { get; set; }
         public bool ShowGraph { get; set; }
         public string GraphStyle { get; set; }
         public int ColorArgb { get; set; }
@@ -57,6 +58,11 @@ namespace TaskbarMonitor
         public Color Color
         {
             get { return Color.FromArgb(ColorArgb); }
+        }
+
+        public Color TemperatureColor
+        {
+            get { return Color.FromArgb(TemperatureColorArgb); }
         }
     }
 
@@ -100,7 +106,7 @@ namespace TaskbarMonitor
         public static AppSettings CreateDefault()
         {
             AppSettings value = new AppSettings();
-            value.SettingsVersion = 7;
+            value.SettingsVersion = 8;
             value.UpdateIntervalMs = 1000;
             value.HistorySeconds = 60;
             value.MaxWidth = 560;
@@ -153,6 +159,7 @@ namespace TaskbarMonitor
             item.Enabled = enabled;
             item.ShowValue = true;
             item.ShowTemperature = kind == MetricKind.Cpu || kind == MetricKind.Gpu;
+            item.TemperatureColorArgb = Color.FromArgb(255, 184, 74).ToArgb();
             item.ShowGraph = true;
             item.GraphStyle = "Line";
             item.ColorArgb = color.ToArgb();
@@ -168,6 +175,7 @@ namespace TaskbarMonitor
         {
             AppSettings defaults = CreateDefault();
             bool addTemperatureDefaults = SettingsVersion < 7;
+            bool addTemperatureColorDefaults = SettingsVersion < 8;
             if (SettingsVersion < 2)
             {
                 WidgetInteractionEnabled = true;
@@ -216,9 +224,12 @@ namespace TaskbarMonitor
                 {
                     if (String.IsNullOrEmpty(existing.ValueFormat)) existing.ValueFormat = defaultMetric.ValueFormat;
                     if (addTemperatureDefaults) existing.ShowTemperature = defaultMetric.ShowTemperature;
+                    if (addTemperatureColorDefaults || existing.TemperatureColorArgb == 0)
+                        existing.TemperatureColorArgb = defaultMetric.TemperatureColorArgb;
                 }
             }
             if (addTemperatureDefaults) SettingsVersion = 7;
+            if (addTemperatureColorDefaults) SettingsVersion = 8;
             if (UpdateIntervalMs < 200) UpdateIntervalMs = defaults.UpdateIntervalMs;
             if (HistorySeconds < 10) HistorySeconds = defaults.HistorySeconds;
             if (MaxWidth < 160) MaxWidth = defaults.MaxWidth;

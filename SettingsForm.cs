@@ -325,6 +325,15 @@ namespace TaskbarMonitor
             temperature.FillWeight = 48;
             grid.Columns.Add(temperature);
 
+            DataGridViewButtonColumn temperatureColor = new DataGridViewButtonColumn();
+            temperatureColor.Name = "TemperatureColor";
+            temperatureColor.HeaderText = "온도 색";
+            temperatureColor.ToolTipText = "CPU/GPU 온도 글자의 색상을 선택합니다. 기본값은 주황색입니다.";
+            temperatureColor.Text = "선택";
+            temperatureColor.UseColumnTextForButtonValue = true;
+            temperatureColor.FillWeight = 58;
+            grid.Columns.Add(temperatureColor);
+
             DataGridViewCheckBoxColumn value = new DataGridViewCheckBoxColumn();
             value.Name = "Value";
             value.HeaderText = "숫자";
@@ -375,7 +384,7 @@ namespace TaskbarMonitor
 
         private void ConfigureHelpText()
         {
-            helpTip.SetToolTip(metricGrid, "표시 이름은 직접 수정할 수 있습니다. CPU/GPU 온도, 숫자와 그래프는 서로 독립적으로 켜고 끌 수 있습니다. 온도 센서가 없으면 온도만 자동 생략됩니다.");
+            helpTip.SetToolTip(metricGrid, "표시 이름은 직접 수정할 수 있습니다. CPU/GPU 온도, 숫자와 그래프는 서로 독립적으로 켜고 끌 수 있습니다. 온도 색도 CPU/GPU별로 선택할 수 있습니다.");
             helpTip.SetToolTip(intervalInput, "값을 다시 읽는 주기입니다. 1000ms를 권장합니다. 200~500ms는 더 부드럽지만 CPU 사용량이 늘 수 있습니다.");
             helpTip.SetToolTip(historyInput, "미니 그래프가 기억하는 과거 시간입니다. 60초를 권장하며, 길게 잡을수록 메모리를 조금 더 사용합니다.");
             helpTip.SetToolTip(widthInput, "위젯이 차지할 수 있는 최대 가로 폭입니다. 항목이 잘리면 늘리고 작업표시줄이 좁으면 줄이세요.");
@@ -408,7 +417,7 @@ namespace TaskbarMonitor
             foreach (MetricOption option in working.Metrics.OrderBy(delegate(MetricOption m) { return m.Order; }))
             {
                 int index = metricGrid.Rows.Add(option.Enabled, option.DisplayName, option.Label, option.ShowTemperature,
-                    option.ShowValue, option.ShowGraph, ValueFormatDisplay(option), StyleDisplay(option.GraphStyle), "선택");
+                    "선택", option.ShowValue, option.ShowGraph, ValueFormatDisplay(option), StyleDisplay(option.GraphStyle), "선택");
                 DataGridViewRow row = metricGrid.Rows[index];
                 row.Tag = option;
                 if (option.Kind != MetricKind.Cpu && option.Kind != MetricKind.Gpu)
@@ -416,6 +425,16 @@ namespace TaskbarMonitor
                     row.Cells["Temperature"].ReadOnly = true;
                     row.Cells["Temperature"].Style.ForeColor = Color.Gray;
                     row.Cells["Temperature"].Style.BackColor = Color.FromArgb(238, 238, 238);
+                    row.Cells["TemperatureColor"].ReadOnly = true;
+                    row.Cells["TemperatureColor"].Style.ForeColor = Color.Gray;
+                    row.Cells["TemperatureColor"].Style.BackColor = Color.FromArgb(238, 238, 238);
+                }
+                else
+                {
+                    row.Cells["TemperatureColor"].Style.BackColor = option.TemperatureColor;
+                    row.Cells["TemperatureColor"].Style.SelectionBackColor = option.TemperatureColor;
+                    row.Cells["TemperatureColor"].Style.ForeColor = ContrastColor(option.TemperatureColor);
+                    row.Cells["TemperatureColor"].Style.SelectionForeColor = ContrastColor(option.TemperatureColor);
                 }
                 if (option.Kind != MetricKind.Memory)
                 {
@@ -432,19 +451,25 @@ namespace TaskbarMonitor
 
         private void MetricGridCellContentClick(object sender, DataGridViewCellEventArgs e)
         {
-            if (e.RowIndex < 0 || metricGrid.Columns[e.ColumnIndex].Name != "Color") return;
+            if (e.RowIndex < 0) return;
+            string columnName = metricGrid.Columns[e.ColumnIndex].Name;
+            if (columnName != "Color" && columnName != "TemperatureColor") return;
             MetricOption option = (MetricOption)metricGrid.Rows[e.RowIndex].Tag;
+            bool temperatureColor = columnName == "TemperatureColor";
+            if (temperatureColor && option.Kind != MetricKind.Cpu && option.Kind != MetricKind.Gpu) return;
             using (ColorDialog dialog = new ColorDialog())
             {
-                dialog.Color = option.Color;
+                dialog.Color = temperatureColor ? option.TemperatureColor : option.Color;
                 dialog.FullOpen = true;
                 if (dialog.ShowDialog(this) == DialogResult.OK)
                 {
-                    option.ColorArgb = dialog.Color.ToArgb();
-                    metricGrid.Rows[e.RowIndex].Cells["Color"].Style.BackColor = dialog.Color;
-                    metricGrid.Rows[e.RowIndex].Cells["Color"].Style.SelectionBackColor = dialog.Color;
-                    metricGrid.Rows[e.RowIndex].Cells["Color"].Style.ForeColor = ContrastColor(dialog.Color);
-                    metricGrid.Rows[e.RowIndex].Cells["Color"].Style.SelectionForeColor = ContrastColor(dialog.Color);
+                    if (temperatureColor) option.TemperatureColorArgb = dialog.Color.ToArgb();
+                    else option.ColorArgb = dialog.Color.ToArgb();
+                    DataGridViewCell colorCell = metricGrid.Rows[e.RowIndex].Cells[columnName];
+                    colorCell.Style.BackColor = dialog.Color;
+                    colorCell.Style.SelectionBackColor = dialog.Color;
+                    colorCell.Style.ForeColor = ContrastColor(dialog.Color);
+                    colorCell.Style.SelectionForeColor = ContrastColor(dialog.Color);
                     RefreshPreview();
                 }
             }

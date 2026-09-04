@@ -203,7 +203,7 @@ namespace TaskbarMonitor
                 {
                     MetricOption option = metrics[first + index].Option;
                     int temperatureAllowance = option != null && option.ShowTemperature &&
-                        (option.Kind == MetricKind.Cpu || option.Kind == MetricKind.Gpu) ? 28 : 0;
+                        (option.Kind == MetricKind.Cpu || option.Kind == MetricKind.Gpu) ? 38 : 0;
                     weights[index] = targetWidth + temperatureAllowance;
                     totalWeight += weights[index];
                 }
@@ -237,8 +237,6 @@ namespace TaskbarMonitor
             float labelSize = integratedStyle ? Math.Max(7.0f, settings.FontSize - 0.7f) : settings.FontSize;
             using (Font labelFont = new Font("Segoe UI", labelSize, FontStyle.Regular, GraphicsUnit.Point))
             using (Font valueFont = new Font("Segoe UI", Math.Max(7.0f, labelSize - 0.4f), FontStyle.Bold, GraphicsUnit.Point))
-            using (Font temperatureFont = new Font("Segoe UI", Math.Max(7.0f, labelSize - 1.0f),
-                FontStyle.Regular, GraphicsUnit.Point))
             {
                 int x = 1 + navigationWidth;
                 for (int visibleIndex = 0; visibleIndex < shown; visibleIndex++)
@@ -247,7 +245,7 @@ namespace TaskbarMonitor
                     int width = visibleIndex == shown - 1 && (overflow || settings.AutoFit) ? rightLimit - x : itemWidths[visibleIndex];
                     if (x >= rightLimit) break;
                     Rectangle bounds = new Rectangle(x, 1, Math.Max(1, Math.Min(width, rightLimit - x)), Math.Max(1, Height - 2));
-                    DrawMetric(graphics, bounds, metrics[first + visibleIndex], labelFont, temperatureFont, valueFont, foreground, border);
+                    DrawMetric(graphics, bounds, metrics[first + visibleIndex], labelFont, valueFont, foreground, border);
                     x += width;
                 }
             }
@@ -314,7 +312,7 @@ namespace TaskbarMonitor
             return pageCount > 1 && (previousPageBounds.Contains(location) || nextPageBounds.Contains(location));
         }
 
-        private void DrawMetric(Graphics graphics, Rectangle bounds, DisplayMetricItem item, Font labelFont, Font temperatureFont,
+        private void DrawMetric(Graphics graphics, Rectangle bounds, DisplayMetricItem item, Font labelFont,
             Font valueFont, Color foreground, Color border)
         {
             MetricOption option = item.Option;
@@ -324,7 +322,7 @@ namespace TaskbarMonitor
                 using (Pen separator = new Pen(Color.FromArgb(55, foreground)))
                     graphics.DrawLine(separator, bounds.Left, bounds.Top + 4, bounds.Left, bounds.Bottom - 4);
             }
-            int padding = integratedStyle ? 1 : (bounds.Width < 60 ? 2 : 6);
+            int padding = integratedStyle && integratedSeamless ? 0 : (integratedStyle ? 1 : (bounds.Width < 60 ? 2 : 6));
             Rectangle inner = new Rectangle(bounds.Left + padding, bounds.Top + 1, Math.Max(1, bounds.Width - padding * 2), Math.Max(1, bounds.Height - 2));
             bool veryNarrow = bounds.Width < 62;
             bool compact = bounds.Width < 92;
@@ -336,7 +334,7 @@ namespace TaskbarMonitor
                 new Size(Int32.MaxValue, textHeight), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
             int measuredValueWidth = String.IsNullOrEmpty(value) ? 0 : TextRenderer.MeasureText(value, valueFont,
                 new Size(Int32.MaxValue, textHeight), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
-            int measuredTemperatureWidth = String.IsNullOrEmpty(temperature) ? 0 : TextRenderer.MeasureText(temperature, temperatureFont,
+            int measuredTemperatureWidth = String.IsNullOrEmpty(temperature) ? 0 : TextRenderer.MeasureText(temperature, valueFont,
                 new Size(Int32.MaxValue, textHeight), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
             int valueWidth = Math.Min(measuredValueWidth, Math.Max(0, inner.Width - Math.Min(measuredLabelWidth, inner.Width)));
             int temperatureSpace = Math.Max(0, inner.Width - measuredLabelWidth - valueWidth);
@@ -354,7 +352,7 @@ namespace TaskbarMonitor
             TextRenderer.DrawText(graphics, item.Label, labelFont, labelRect, option.Color,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
             if (temperatureWidth > 0)
-                TextRenderer.DrawText(graphics, temperature, temperatureFont, temperatureRect, Color.FromArgb(255, 184, 74),
+                TextRenderer.DrawText(graphics, temperature, valueFont, temperatureRect, option.TemperatureColor,
                     TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
             if (option.ShowValue)
                 TextRenderer.DrawText(graphics, value, valueFont, valueRect, foreground,
