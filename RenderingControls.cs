@@ -195,37 +195,12 @@ namespace TaskbarMonitor
             visibleItemCount = shown;
             int itemWidth = overflow || settings.AutoFit ? Math.Max(1, contentWidth / Math.Max(1, shown)) : targetWidth;
             int[] itemWidths = new int[shown];
-            if (!overflow && settings.AutoFit)
+            if (overflow || settings.AutoFit)
             {
-                int totalWeight = 0;
-                int[] weights = new int[shown];
+                int baseWidth = Math.Max(1, contentWidth / Math.Max(1, shown));
+                int remainder = Math.Max(0, contentWidth - baseWidth * shown);
                 for (int index = 0; index < shown; index++)
-                {
-                    MetricOption option = metrics[first + index].Option;
-                    int temperatureAllowance = option != null && option.ShowTemperature &&
-                        (option.Kind == MetricKind.Cpu || option.Kind == MetricKind.Gpu) ? 38 : 0;
-                    weights[index] = targetWidth + temperatureAllowance;
-                    totalWeight += weights[index];
-                }
-                int usedWidth = 0;
-                double[] fractions = new double[shown];
-                for (int index = 0; index < shown; index++)
-                {
-                    double exactWidth = contentWidth * weights[index] / (double)Math.Max(1, totalWeight);
-                    itemWidths[index] = Math.Max(1, (int)Math.Floor(exactWidth));
-                    fractions[index] = exactWidth - Math.Floor(exactWidth);
-                    usedWidth += itemWidths[index];
-                }
-                int remainder = Math.Max(0, contentWidth - usedWidth);
-                while (remainder > 0)
-                {
-                    int bestIndex = 0;
-                    for (int index = 1; index < shown; index++)
-                        if (fractions[index] > fractions[bestIndex]) bestIndex = index;
-                    itemWidths[bestIndex]++;
-                    fractions[bestIndex] = -1.0;
-                    remainder--;
-                }
+                    itemWidths[index] = baseWidth + (index < remainder ? 1 : 0);
             }
             else
             {
@@ -322,7 +297,7 @@ namespace TaskbarMonitor
                 using (Pen separator = new Pen(Color.FromArgb(55, foreground)))
                     graphics.DrawLine(separator, bounds.Left, bounds.Top + 4, bounds.Left, bounds.Bottom - 4);
             }
-            int padding = integratedStyle && integratedSeamless ? 0 : (integratedStyle ? 1 : (bounds.Width < 60 ? 2 : 6));
+            int padding = integratedStyle ? (integratedSeamless ? 2 : 3) : (bounds.Width < 60 ? 2 : 6);
             Rectangle inner = new Rectangle(bounds.Left + padding, bounds.Top + 1, Math.Max(1, bounds.Width - padding * 2), Math.Max(1, bounds.Height - 2));
             bool veryNarrow = bounds.Width < 62;
             bool compact = bounds.Width < 92;
@@ -339,11 +314,6 @@ namespace TaskbarMonitor
             int valueWidth = Math.Min(measuredValueWidth, Math.Max(0, inner.Width - Math.Min(measuredLabelWidth, inner.Width)));
             int temperatureSpace = Math.Max(0, inner.Width - measuredLabelWidth - valueWidth);
             int temperatureWidth = Math.Min(measuredTemperatureWidth, temperatureSpace);
-            if (temperatureWidth < measuredTemperatureWidth)
-            {
-                temperature = String.Empty;
-                temperatureWidth = 0;
-            }
             int labelWidth = Math.Max(1, inner.Width - valueWidth - temperatureWidth);
             Rectangle labelRect = new Rectangle(inner.Left, inner.Top, labelWidth, textHeight);
             Rectangle temperatureRect = new Rectangle(labelRect.Right, inner.Top,
@@ -352,8 +322,8 @@ namespace TaskbarMonitor
             TextRenderer.DrawText(graphics, item.Label, labelFont, labelRect, option.Color,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
             if (temperatureWidth > 0)
-                TextRenderer.DrawText(graphics, temperature, valueFont, temperatureRect, option.TemperatureColor,
-                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                DrawTemperatureText(graphics, temperature, valueFont, temperatureRect, option.TemperatureColor,
+                    seamlessVisual ? integratedBackColor : Color.FromArgb(settings.BackgroundArgb), measuredTemperatureWidth);
             if (option.ShowValue)
                 TextRenderer.DrawText(graphics, value, valueFont, valueRect, foreground,
                     TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
@@ -370,6 +340,33 @@ namespace TaskbarMonitor
                 Rectangle centered = new Rectangle(inner.Left, inner.Top, inner.Width, inner.Height);
                 TextRenderer.DrawText(graphics, item.Label, valueFont, centered, option.Color,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            }
+        }
+
+        private static void DrawTemperatureText(Graphics graphics, string text, Font font, Rectangle bounds,
+            Color color, Color background, int measuredWidth)
+        {
+            TextFormatFlags flags = TextFormatFlags.Left | TextFormatFlags.VerticalCenter |
+                TextFormatFlags.SingleLine | TextFormatFlags.NoPadding;
+            if (bounds.Width >= measuredWidth)
+            {
+                TextRenderer.DrawText(graphics, text, font, bounds, color, flags);
+                return;
+            }
+            if (bounds.Width <= 0 || bounds.Height <= 0 || measuredWidth <= 0) return;
+            using (Bitmap buffer = new Bitmap(measuredWidth, bounds.Height))
+            using (Graphics bufferGraphics = Graphics.FromImage(buffer))
+            {
+                bufferGraphics.Clear(background);
+                TextRenderer.DrawText(bufferGraphics, text, font,
+                    new Rectangle(0, 0, measuredWidth, bounds.Height), color, flags);
+                InterpolationMode previousInterpolation = graphics.InterpolationMode;
+                PixelOffsetMode previousPixelOffset = graphics.PixelOffsetMode;
+                graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                graphics.DrawImage(buffer, bounds, 0, 0, buffer.Width, buffer.Height, GraphicsUnit.Pixel);
+                graphics.InterpolationMode = previousInterpolation;
+                graphics.PixelOffsetMode = previousPixelOffset;
             }
         }
     }

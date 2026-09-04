@@ -526,6 +526,26 @@ namespace TaskbarMonitor
                     image.Save(Path.Combine(directory, "bar-preview-compact.png"));
                 }
             }
+            using (MetricBarControl compactNoNetworkBar = new MetricBarControl())
+            {
+                AppSettings compactSettings = settings.Clone();
+                compactSettings.PositionMode = "Inside";
+                compactSettings.MaxWidth = 344;
+                compactSettings.InsideItemWidth = 70;
+                compactSettings.AutoFit = true;
+                compactSettings.OverflowPaging = false;
+                compactSettings.SelectedDisks = new List<string> { "C:" };
+                compactSettings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Memory; }).ValueFormat = "Percent";
+                compactSettings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Network; }).Enabled = false;
+                compactNoNetworkBar.Size = new Size(344, 28);
+                compactNoNetworkBar.SetIntegratedStyle(true, Color.FromArgb(31, 31, 31));
+                compactNoNetworkBar.Configure(compactSettings, snapshot, history);
+                using (Bitmap image = new Bitmap(compactNoNetworkBar.Width, compactNoNetworkBar.Height))
+                {
+                    compactNoNetworkBar.DrawToBitmap(image, new Rectangle(Point.Empty, image.Size));
+                    image.Save(Path.Combine(directory, "bar-preview-compact-no-network.png"));
+                }
+            }
         }
     }
 }
