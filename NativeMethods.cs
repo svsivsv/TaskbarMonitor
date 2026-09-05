@@ -37,6 +37,8 @@ namespace TaskbarMonitor
         public static readonly int WM_APP_SHOW_SETTINGS = (int)RegisterWindowMessage("TaskbarMonitor.ShowSettings.svsivsv.v1");
         public static readonly int WM_APP_QUERY_INTERACTION_ENABLED = (int)RegisterWindowMessage("TaskbarMonitor.QueryInteraction.svsivsv.v1");
         public static readonly int WM_APP_QUERY_TASK_MANAGER_LAUNCH_COUNT = (int)RegisterWindowMessage("TaskbarMonitor.QueryTaskManagerLaunches.svsivsv.v1");
+        public static readonly int WM_APP_QUERY_CPU_TEMPERATURE = (int)RegisterWindowMessage("TaskbarMonitor.QueryCpuTemperature.svsivsv.v1");
+        public static readonly int WM_APP_QUERY_GPU_TEMPERATURE = (int)RegisterWindowMessage("TaskbarMonitor.QueryGpuTemperature.svsivsv.v1");
         public const string MessageSinkCaption = "TaskbarMonitor.MessageSink.1";
         public static readonly IntPtr HWND_BROADCAST = new IntPtr(0xffff);
 

@@ -741,6 +741,18 @@ namespace TaskbarMonitor
                 message.Result = new IntPtr(host.TaskManagerLaunchCount);
                 return;
             }
+            if (message.Msg == NativeMethods.WM_APP_QUERY_CPU_TEMPERATURE)
+            {
+                double? temperature = host.Snapshot.CpuTemperatureC;
+                message.Result = temperature.HasValue ? new IntPtr((int)Math.Round(temperature.Value * 10.0) + 1) : IntPtr.Zero;
+                return;
+            }
+            if (message.Msg == NativeMethods.WM_APP_QUERY_GPU_TEMPERATURE)
+            {
+                double? temperature = host.Snapshot.GpuTemperatureC;
+                message.Result = temperature.HasValue ? new IntPtr((int)Math.Round(temperature.Value * 10.0) + 1) : IntPtr.Zero;
+                return;
+            }
             base.WndProc(ref message);
         }
 

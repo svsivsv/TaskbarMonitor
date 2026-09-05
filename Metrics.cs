@@ -83,12 +83,22 @@ namespace TaskbarMonitor
 
         public string FormatTemperature(MetricOption option)
         {
+            return FormatTemperature(option, "°C");
+        }
+
+        public string FormatCompactTemperature(MetricOption option)
+        {
+            return FormatTemperature(option, "°");
+        }
+
+        private string FormatTemperature(MetricOption option, string suffix)
+        {
             if (option == null || !option.ShowTemperature) return String.Empty;
             double? temperature = option.Kind == MetricKind.Cpu ? CpuTemperatureC :
                 (option.Kind == MetricKind.Gpu ? GpuTemperatureC : null);
             if (!temperature.HasValue || temperature.Value < -20.0 || temperature.Value > 150.0)
                 return String.Empty;
-            return Math.Round(temperature.Value).ToString("0") + "°";
+            return Math.Round(temperature.Value).ToString("0") + suffix;
         }
 
         public static string FormatRate(double bytesPerSecond)

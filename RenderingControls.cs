@@ -305,12 +305,30 @@ namespace TaskbarMonitor
             string temperature = snapshot.FormatTemperature(option);
             int graphThreshold = integratedStyle ? 20 : 25;
             int textHeight = option.ShowGraph && inner.Height >= graphThreshold ? (integratedStyle ? 13 : 16) : inner.Height;
-            int measuredLabelWidth = TextRenderer.MeasureText(item.Label, labelFont,
+            int measuredLabelWidth = TextRenderer.MeasureText(graphics, item.Label, labelFont,
                 new Size(Int32.MaxValue, textHeight), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
-            int measuredValueWidth = String.IsNullOrEmpty(value) ? 0 : TextRenderer.MeasureText(value, valueFont,
+            int measuredValueWidth = String.IsNullOrEmpty(value) ? 0 : TextRenderer.MeasureText(graphics, value, valueFont,
                 new Size(Int32.MaxValue, textHeight), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
-            int measuredTemperatureWidth = String.IsNullOrEmpty(temperature) ? 0 : TextRenderer.MeasureText(temperature, valueFont,
+            int measuredTemperatureWidth = String.IsNullOrEmpty(temperature) ? 0 : TextRenderer.MeasureText(graphics, temperature, valueFont,
                 new Size(Int32.MaxValue, textHeight), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
+            if (measuredTemperatureWidth > 0)
+            {
+                string compactTemperature = snapshot.FormatCompactTemperature(option);
+                int compactTemperatureWidth = TextRenderer.MeasureText(graphics, compactTemperature, valueFont,
+                    new Size(Int32.MaxValue, textHeight), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
+                string selectedTemperature = ChooseTemperatureText(temperature, measuredTemperatureWidth,
+                    compactTemperature, compactTemperatureWidth, measuredLabelWidth + measuredValueWidth, inner.Width);
+                if (String.IsNullOrEmpty(selectedTemperature))
+                {
+                    temperature = String.Empty;
+                    measuredTemperatureWidth = 0;
+                }
+                else if (!String.Equals(selectedTemperature, temperature, StringComparison.Ordinal))
+                {
+                    temperature = selectedTemperature;
+                    measuredTemperatureWidth = compactTemperatureWidth;
+                }
+            }
             int valueWidth = Math.Min(measuredValueWidth, Math.Max(0, inner.Width - Math.Min(measuredLabelWidth, inner.Width)));
             int temperatureSpace = Math.Max(0, inner.Width - measuredLabelWidth - valueWidth);
             int temperatureWidth = Math.Min(measuredTemperatureWidth, temperatureSpace);
@@ -336,8 +354,7 @@ namespace TaskbarMonitor
             TextRenderer.DrawText(graphics, item.Label, labelFont, labelRect, option.Color,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
             if (temperatureWidth > 0)
-                DrawTemperatureText(graphics, temperature, valueFont, temperatureRect, option.TemperatureColor,
-                    seamlessVisual ? integratedBackColor : Color.FromArgb(settings.BackgroundArgb), measuredTemperatureWidth);
+                DrawTemperatureText(graphics, temperature, valueFont, temperatureRect, option.TemperatureColor);
             if (option.ShowValue)
                 TextRenderer.DrawText(graphics, value, valueFont, valueRect, foreground,
                     TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
@@ -362,31 +379,22 @@ namespace TaskbarMonitor
             return requiredWidth <= availableWidth + 8;
         }
 
-        private static void DrawTemperatureText(Graphics graphics, string text, Font font, Rectangle bounds,
-            Color color, Color background, int measuredWidth)
+        internal static string ChooseTemperatureText(string fullText, int fullWidth, string compactText,
+            int compactWidth, int otherTextWidth, int availableWidth)
+        {
+            if (String.IsNullOrEmpty(fullText)) return String.Empty;
+            if (CanKeepTemperatureUnscaled(otherTextWidth + fullWidth, availableWidth)) return fullText;
+            if (!String.IsNullOrEmpty(compactText) &&
+                CanKeepTemperatureUnscaled(otherTextWidth + compactWidth, availableWidth)) return compactText;
+            return String.Empty;
+        }
+
+        private static void DrawTemperatureText(Graphics graphics, string text, Font font, Rectangle bounds, Color color)
         {
             TextFormatFlags flags = TextFormatFlags.Left | TextFormatFlags.VerticalCenter |
                 TextFormatFlags.SingleLine | TextFormatFlags.NoPadding;
-            if (bounds.Width >= measuredWidth)
-            {
-                TextRenderer.DrawText(graphics, text, font, bounds, color, flags);
-                return;
-            }
-            if (bounds.Width <= 0 || bounds.Height <= 0 || measuredWidth <= 0) return;
-            using (Bitmap buffer = new Bitmap(measuredWidth, bounds.Height))
-            using (Graphics bufferGraphics = Graphics.FromImage(buffer))
-            {
-                bufferGraphics.Clear(background);
-                TextRenderer.DrawText(bufferGraphics, text, font,
-                    new Rectangle(0, 0, measuredWidth, bounds.Height), color, flags);
-                InterpolationMode previousInterpolation = graphics.InterpolationMode;
-                PixelOffsetMode previousPixelOffset = graphics.PixelOffsetMode;
-                graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-                graphics.DrawImage(buffer, bounds, 0, 0, buffer.Width, buffer.Height, GraphicsUnit.Pixel);
-                graphics.InterpolationMode = previousInterpolation;
-                graphics.PixelOffsetMode = previousPixelOffset;
-            }
+            if (bounds.Width <= 0 || bounds.Height <= 0) return;
+            TextRenderer.DrawText(graphics, text, font, bounds, color, flags);
         }
     }
 

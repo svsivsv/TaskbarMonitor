@@ -214,15 +214,28 @@ namespace TaskbarMonitor
                     MetricSnapshot temperatureFormattingSnapshot = new MetricSnapshot();
                     temperatureFormattingSnapshot.CpuTemperatureC = 57.4;
                     temperatureFormattingSnapshot.GpuTemperatureC = 50.6;
-                    bool temperatureFormattingPassed = temperatureFormattingSnapshot.FormatTemperature(defaultCpuOption) == "57°" &&
-                        temperatureFormattingSnapshot.FormatTemperature(defaultGpuOption) == "51°";
+                    bool temperatureFormattingPassed = temperatureFormattingSnapshot.FormatTemperature(defaultCpuOption) == "57°C" &&
+                        temperatureFormattingSnapshot.FormatTemperature(defaultGpuOption) == "51°C" &&
+                        temperatureFormattingSnapshot.FormatCompactTemperature(defaultCpuOption) == "57°";
                     report["temperatureReadingsPlausible"] = temperatureReadingsPlausible;
                     report["temperatureFormattingPassed"] = temperatureFormattingPassed;
+                    bool temperatureTextFitPassed =
+                        MetricBarControl.ChooseTemperatureText("58°C", 23, "58°", 16, 45, 68) == "58°C" &&
+                        MetricBarControl.ChooseTemperatureText("58°C", 23, "58°", 16, 45, 58) == "58°" &&
+                        MetricBarControl.ChooseTemperatureText("58°C", 23, "58°", 16, 45, 50) == String.Empty;
+                    report["temperatureTextFitPassed"] = temperatureTextFitPassed;
                     IntPtr desktopWindow = NativeMethods.FindWindow("Progman", null);
                     bool desktopExcluded = !NativeMethods.IsWindowFullscreen(desktopWindow);
                     report["desktopExcludedFromFullscreen"] = desktopExcluded;
                     IntPtr taskbarWindow = NativeMethods.GetPrimaryTaskbarHandle();
                     IntPtr widgetWindow = NativeMethods.FindWindow(null, "Taskbar Monitor");
+                    if (widgetWindow != IntPtr.Zero)
+                    {
+                        report["runtimeCpuTemperatureTenthsPlusOne"] = NativeMethods.SendMessage(widgetWindow,
+                            NativeMethods.WM_APP_QUERY_CPU_TEMPERATURE, IntPtr.Zero, IntPtr.Zero).ToInt32();
+                        report["runtimeGpuTemperatureTenthsPlusOne"] = NativeMethods.SendMessage(widgetWindow,
+                            NativeMethods.WM_APP_QUERY_GPU_TEMPERATURE, IntPtr.Zero, IntPtr.Zero).ToInt32();
+                    }
                     AppSettings persistedSettings = SettingsStore.Load();
                     bool expectedClickThrough = !persistedSettings.WidgetInteractionEnabled;
                     int widgetExStyle = widgetWindow == IntPtr.Zero ? 0 :
@@ -372,7 +385,7 @@ namespace TaskbarMonitor
                         multiDiskDisplayCount == expectedMultiDiskDisplayCount && pagingPassed &&
                         defaultResetPassed && temperatureMigrationPassed && temperatureRetentionPassed && temperatureBearingLayoutPassed &&
                         insideAutoFitWidthPassed && taskbarLayerPolicyPassed && settingsVisibilityPolicyPassed &&
-                        temperatureReadingsPlausible && temperatureFormattingPassed &&
+                        temperatureReadingsPlausible && temperatureFormattingPassed && temperatureTextFitPassed &&
                         hiddenSamplingPolicyPassed && insideStyleRenderingPassed && popupResizeCalculationPassed &&
                         widgetInputPolicyPassed && contextMenuAutoDismissConfigured &&
                         clickThroughNativeStatePassed && runtimeInteractionMatchesSettings && disabledDoubleClickSuppressed &&
