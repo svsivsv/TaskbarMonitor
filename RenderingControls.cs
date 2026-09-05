@@ -313,11 +313,12 @@ namespace TaskbarMonitor
                 new Size(Int32.MaxValue, textHeight), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
             if (measuredTemperatureWidth > 0)
             {
+                int reservedGap = measuredValueWidth > 0 ? 5 : 0;
                 string compactTemperature = snapshot.FormatCompactTemperature(option);
                 int compactTemperatureWidth = TextRenderer.MeasureText(graphics, compactTemperature, valueFont,
                     new Size(Int32.MaxValue, textHeight), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
                 string selectedTemperature = ChooseTemperatureText(temperature, measuredTemperatureWidth,
-                    compactTemperature, compactTemperatureWidth, measuredLabelWidth + measuredValueWidth, inner.Width);
+                    compactTemperature, compactTemperatureWidth, measuredLabelWidth + measuredValueWidth + reservedGap, inner.Width);
                 if (String.IsNullOrEmpty(selectedTemperature))
                 {
                     temperature = String.Empty;
@@ -346,6 +347,14 @@ namespace TaskbarMonitor
                 valueWidth = Math.Min(measuredValueWidth, inner.Width);
                 temperatureWidth = measuredTemperatureWidth;
                 temperatureLeft = inner.Left + labelWidth - (bearingShortage + 1) / 2;
+            }
+            if (temperatureWidth > 0 && valueWidth > 0)
+            {
+                // Reserve a real gap between temperature and usage, including
+                // the compact layout where text side bearings may overlap.
+                temperatureWidth = measuredTemperatureWidth;
+                temperatureLeft = inner.Right - valueWidth - 5 - temperatureWidth;
+                labelWidth = Math.Max(1, temperatureLeft - inner.Left);
             }
             Rectangle labelRect = new Rectangle(inner.Left, inner.Top, labelWidth, textHeight);
             Rectangle temperatureRect = new Rectangle(temperatureLeft, inner.Top,
