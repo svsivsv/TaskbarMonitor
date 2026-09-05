@@ -311,62 +311,40 @@ namespace TaskbarMonitor
                 new Size(Int32.MaxValue, textHeight), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
             int measuredTemperatureWidth = String.IsNullOrEmpty(temperature) ? 0 : TextRenderer.MeasureText(graphics, temperature, valueFont,
                 new Size(Int32.MaxValue, textHeight), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
-            if (measuredTemperatureWidth > 0)
+            // Numeric readings keep their space even when a custom name is long.
+            int valueWidth = Math.Min(measuredValueWidth, inner.Width);
+            int labelBudget = Math.Min(measuredLabelWidth, 26);
+            int temperatureGap = valueWidth > 0 ? 5 : 0;
+            int nameGap = 2;
+            int availableTemperature = Math.Max(0, inner.Width - valueWidth -
+                temperatureGap - nameGap - labelBudget);
+            if (measuredTemperatureWidth > availableTemperature)
             {
-                int reservedGap = measuredValueWidth > 0 ? 5 : 0;
-                string compactTemperature = snapshot.FormatCompactTemperature(option);
-                int compactTemperatureWidth = TextRenderer.MeasureText(graphics, compactTemperature, valueFont,
-                    new Size(Int32.MaxValue, textHeight), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
-                string selectedTemperature = ChooseTemperatureText(temperature, measuredTemperatureWidth,
-                    compactTemperature, compactTemperatureWidth, measuredLabelWidth + measuredValueWidth + reservedGap, inner.Width);
-                if (String.IsNullOrEmpty(selectedTemperature))
-                {
-                    temperature = String.Empty;
-                    measuredTemperatureWidth = 0;
-                }
-                else if (!String.Equals(selectedTemperature, temperature, StringComparison.Ordinal))
-                {
-                    temperature = selectedTemperature;
-                    measuredTemperatureWidth = compactTemperatureWidth;
-                }
+                temperature = snapshot.FormatCompactTemperature(option);
+                measuredTemperatureWidth = String.IsNullOrEmpty(temperature) ? 0 :
+                    TextRenderer.MeasureText(graphics, temperature, valueFont,
+                        new Size(Int32.MaxValue, textHeight),
+                        TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
             }
-            int valueWidth = Math.Min(measuredValueWidth, Math.Max(0, inner.Width - Math.Min(measuredLabelWidth, inner.Width)));
-            int temperatureSpace = Math.Max(0, inner.Width - measuredLabelWidth - valueWidth);
-            int temperatureWidth = Math.Min(measuredTemperatureWidth, temperatureSpace);
-            int labelWidth = Math.Max(1, inner.Width - valueWidth - temperatureWidth);
-            int temperatureLeft = inner.Left + labelWidth;
-            int requiredTextWidth = measuredLabelWidth + measuredTemperatureWidth + measuredValueWidth;
-            int bearingShortage = requiredTextWidth - inner.Width;
-            if (measuredTemperatureWidth > 0 && bearingShortage > 0 &&
-                CanKeepTemperatureUnscaled(requiredTextWidth, inner.Width))
+            if (measuredTemperatureWidth > availableTemperature)
             {
-                // TextRenderer's measured width includes side bearings that can
-                // safely overlap a little. Keep the original glyph proportions
-                // when only those invisible margins exceed the metric cell.
-                labelWidth = Math.Min(measuredLabelWidth, inner.Width);
-                valueWidth = Math.Min(measuredValueWidth, inner.Width);
-                temperatureWidth = measuredTemperatureWidth;
-                temperatureLeft = inner.Left + labelWidth - (bearingShortage + 1) / 2;
+                temperature = String.Empty;
+                measuredTemperatureWidth = 0;
             }
-            if (temperatureWidth > 0 && valueWidth > 0)
-            {
-                // Reserve a real gap between temperature and usage, including
-                // the compact layout where text side bearings may overlap.
-                temperatureWidth = measuredTemperatureWidth;
-                temperatureLeft = inner.Right - valueWidth - 5 - temperatureWidth;
-                labelWidth = Math.Max(1, temperatureLeft - inner.Left);
-            }
-            Rectangle labelRect = new Rectangle(inner.Left, inner.Top, labelWidth, textHeight);
-            Rectangle temperatureRect = new Rectangle(temperatureLeft, inner.Top,
-                temperatureWidth, textHeight);
-            Rectangle valueRect = new Rectangle(inner.Right - valueWidth, inner.Top, valueWidth, textHeight);
-            TextRenderer.DrawText(graphics, item.Label, labelFont, labelRect, option.Color,
-                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
+            int temperatureWidth = measuredTemperatureWidth;
+            int valueLeft = inner.Right - valueWidth;
+            int temperatureLeft = valueLeft - (temperatureWidth > 0 ? temperatureGap : 0) - temperatureWidth;
+            int labelRight = (temperatureWidth > 0 ? temperatureLeft : valueLeft) -
+                (temperatureWidth > 0 || valueWidth > 0 ? nameGap : 0);
+            Rectangle labelRect = new Rectangle(inner.Left, inner.Top,
+                Math.Max(0, labelRight - inner.Left), textHeight);
+            Rectangle temperatureRect = new Rectangle(temperatureLeft, inner.Top, temperatureWidth, textHeight);
+            Rectangle valueRect = new Rectangle(valueLeft, inner.Top, valueWidth, textHeight);
+            DrawBoundedText(graphics, item.Label, labelFont, labelRect, option.Color, false);
             if (temperatureWidth > 0)
-                DrawTemperatureText(graphics, temperature, valueFont, temperatureRect, option.TemperatureColor);
+                DrawBoundedText(graphics, temperature, valueFont, temperatureRect, option.TemperatureColor, false);
             if (option.ShowValue)
-                TextRenderer.DrawText(graphics, value, valueFont, valueRect, foreground,
-                    TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
+                DrawBoundedText(graphics, value, valueFont, valueRect, foreground, true);
 
             if (option.ShowGraph && inner.Height >= graphThreshold && (!veryNarrow || settings.AutoFit))
             {
@@ -375,12 +353,29 @@ namespace TaskbarMonitor
                 GraphRenderer.Draw(graphics, graphRect, values, option,
                     seamlessVisual ? Color.Transparent : Color.FromArgb(28, foreground));
             }
-            else if (!option.ShowValue && compact)
+            else if (!option.ShowValue && temperatureWidth == 0 && compact)
             {
                 Rectangle centered = new Rectangle(inner.Left, inner.Top, inner.Width, inner.Height);
                 TextRenderer.DrawText(graphics, item.Label, valueFont, centered, option.Color,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
             }
+        }
+
+        private static void DrawBoundedText(Graphics graphics, string text, Font font,
+            Rectangle bounds, Color color, bool alignRight)
+        {
+            if (bounds.Width <= 0 || bounds.Height <= 0) return;
+            GraphicsState state = graphics.Save();
+            try
+            {
+                graphics.SetClip(bounds, CombineMode.Intersect);
+                TextRenderer.DrawText(graphics, text, font, bounds, color,
+                    TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine |
+                    TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding |
+                    TextFormatFlags.NoPrefix | TextFormatFlags.PreserveGraphicsClipping |
+                    (alignRight ? TextFormatFlags.Right : TextFormatFlags.Left));
+            }
+            finally { graphics.Restore(state); }
         }
 
         internal static bool CanKeepTemperatureUnscaled(int requiredWidth, int availableWidth)
