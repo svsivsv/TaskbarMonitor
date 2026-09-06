@@ -244,7 +244,7 @@ namespace TaskbarMonitor
                 FloatingZOrder = defaults.FloatingZOrder;
             if (String.IsNullOrEmpty(InsideStyle)) InsideStyle = defaults.InsideStyle;
             if (OpacityPercent < 25 || OpacityPercent > 100) OpacityPercent = defaults.OpacityPercent;
-            if (FontSize < 7.0f || FontSize > 18.0f) FontSize = defaults.FontSize;
+            if (Single.IsNaN(FontSize) || Single.IsInfinity(FontSize) || FontSize < 7.0f || FontSize > 18.0f) FontSize = defaults.FontSize;
             if (String.IsNullOrEmpty(PositionMode)) PositionMode = defaults.PositionMode;
             if (String.IsNullOrEmpty(FullscreenMode)) FullscreenMode = defaults.FullscreenMode;
             if (String.IsNullOrEmpty(CaptureMode)) CaptureMode = defaults.CaptureMode;
@@ -320,21 +320,38 @@ namespace TaskbarMonitor
 
         public static AppSettings Load()
         {
+            return LoadFromPath(SettingsPath);
+        }
+
+        public static string LoadWarning { get; private set; }
+
+        internal static AppSettings LoadFromPath(string path)
+        {
+            LoadWarning = String.Empty;
             try
             {
-                if (File.Exists(SettingsPath))
+                if (File.Exists(path))
                 {
                     JavaScriptSerializer serializer = new JavaScriptSerializer();
-                    AppSettings value = serializer.Deserialize<AppSettings>(File.ReadAllText(SettingsPath));
+                    AppSettings value = serializer.Deserialize<AppSettings>(File.ReadAllText(path));
                     if (value != null)
                     {
                         value.EnsureDefaults();
                         return value;
                     }
+                    throw new InvalidDataException("설정 내용이 비어 있습니다.");
                 }
             }
             catch
             {
+                LoadWarning = "설정 파일을 읽지 못해 기본값으로 시작했습니다.";
+                try
+                {
+                    string backup = path + ".unreadable.bak";
+                    if (!File.Exists(backup)) File.Copy(path, backup, false);
+                    LoadWarning += " 복구용 원본: " + backup;
+                }
+                catch { LoadWarning += " 원본 백업에 실패했습니다. 저장 전 설정 파일을 따로 보관하세요."; }
             }
             return AppSettings.CreateDefault();
         }

@@ -1,4 +1,6 @@
-release/
+release/*
+!release/TaskbarMonitor.exe
+*.tmp
 bin/
 obj/
 .vs/

@@ -77,6 +77,7 @@ namespace TaskbarMonitor
                 double value;
                 if (DiskPercents != null && DiskPercents.TryGetValue(diskName, out value))
                     return Math.Round(value).ToString("0") + "%";
+                return "—";
             }
             return FormatValue(option.Kind, compact);
         }
@@ -124,9 +125,17 @@ namespace TaskbarMonitor
         private readonly Dictionary<MetricKind, List<double>> values;
         private readonly Dictionary<string, List<double>> diskValues;
         private int maximumSamples;
+        private readonly List<DateTime> timestamps = new List<DateTime>();
+        private readonly IList<DateTime> timestampView;
+        private int historySeconds = 60;
+        private int intervalMs = 1000;
+        public IList<DateTime> Timestamps { get { return timestampView; } }
+        public int WindowSeconds { get { return historySeconds; } }
+        public int IntervalMs { get { return intervalMs; } }
 
         public MetricHistory()
         {
+            timestampView = timestamps.AsReadOnly();
             values = new Dictionary<MetricKind, List<double>>();
             foreach (MetricKind kind in Enum.GetValues(typeof(MetricKind)))
                 values[kind] = new List<double>();
@@ -136,34 +145,41 @@ namespace TaskbarMonitor
 
         public void Configure(int historySeconds, int intervalMs)
         {
-            maximumSamples = Math.Max(1, Math.Min(3000, (int)Math.Ceiling(
-                Math.Max(10, Math.Min(600, historySeconds)) * 1000.0 / Math.Max(200, intervalMs))));
+            this.historySeconds = Math.Max(10, Math.Min(600, historySeconds));
+            this.intervalMs = Math.Max(200, intervalMs);
+            // Keep the existing time window when the sampling interval changes.
+            // The fastest supported rate (200 ms) needs at most 3000 points.
+            maximumSamples = 3000;
             Trim();
         }
 
         public void Add(MetricSnapshot snapshot)
         {
+            DateTime timestamp = snapshot.Timestamp;
+            if (timestamp == DateTime.MinValue)
+                timestamp = timestamps.Count == 0 ? DateTime.UtcNow : timestamps[timestamps.Count - 1].AddMilliseconds(intervalMs);
+            if (timestamps.Count > 0 && timestamp < timestamps[timestamps.Count - 1])
+            {
+                timestamps.Clear();
+                foreach (List<double> list in values.Values) list.Clear();
+                diskValues.Clear();
+            }
+            if (snapshot.DiskPercents != null)
+                foreach (string name in snapshot.DiskPercents.Keys)
+                    if (!diskValues.ContainsKey(name))
+                        diskValues[name] = Enumerable.Repeat(Double.NaN, timestamps.Count).ToList();
+            timestamps.Add(timestamp);
             foreach (MetricKind kind in Enum.GetValues(typeof(MetricKind)))
             {
                 List<double> list = values[kind];
                 list.Add(snapshot.GetValue(kind));
-                if (list.Count > maximumSamples)
-                    list.RemoveRange(0, list.Count - maximumSamples);
             }
-            if (snapshot.DiskPercents != null)
+            foreach (KeyValuePair<string, List<double>> pair in diskValues)
             {
-                foreach (KeyValuePair<string, double> pair in snapshot.DiskPercents)
-                {
-                    List<double> list;
-                    if (!diskValues.TryGetValue(pair.Key, out list))
-                    {
-                        list = new List<double>();
-                        diskValues[pair.Key] = list;
-                    }
-                    list.Add(pair.Value);
-                    if (list.Count > maximumSamples) list.RemoveRange(0, list.Count - maximumSamples);
-                }
+                double value;
+                pair.Value.Add(snapshot.DiskPercents != null && snapshot.DiskPercents.TryGetValue(pair.Key, out value) ? value : Double.NaN);
             }
+            Trim();
         }
 
         public IList<double> GetValues(MetricKind kind)
@@ -200,6 +216,18 @@ namespace TaskbarMonitor
 
         private void Trim()
         {
+            int remove = Math.Max(0, timestamps.Count - maximumSamples);
+            if (timestamps.Count > 0)
+            {
+                DateTime cutoff = timestamps[timestamps.Count - 1].AddSeconds(-historySeconds);
+                while (remove < timestamps.Count && timestamps[remove] <= cutoff) remove++;
+            }
+            if (remove > 0)
+            {
+                timestamps.RemoveRange(0, remove);
+                foreach (List<double> list in values.Values) list.RemoveRange(0, Math.Min(remove, list.Count));
+                foreach (List<double> list in diskValues.Values) list.RemoveRange(0, Math.Min(remove, list.Count));
+            }
             foreach (List<double> list in values.Values)
                 if (list.Count > maximumSamples) list.RemoveRange(0, list.Count - maximumSamples);
             foreach (List<double> list in diskValues.Values)
@@ -261,7 +289,7 @@ namespace TaskbarMonitor
         public MetricSnapshot Sample(AppSettings settings)
         {
             MetricSnapshot result = new MetricSnapshot();
-            result.Timestamp = DateTime.Now;
+            result.Timestamp = DateTime.UtcNow;
             result.CpuPercent = SampleCpu();
             SampleMemory(result);
             SampleDisks(result, settings);

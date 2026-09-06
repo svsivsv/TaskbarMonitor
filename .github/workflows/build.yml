@@ -7,6 +7,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Test the shipped executable
+        shell: powershell
+        run: .\test.ps1 -SkipBuild
       - name: Build and test
         shell: powershell
         run: .\test.ps1

@@ -610,6 +610,14 @@ namespace TaskbarMonitor
                     compactNoNetworkBar.DrawToBitmap(image, new Rectangle(Point.Empty, image.Size));
                     image.Save(Path.Combine(directory, "bar-preview-compact-no-network.png"));
                 }
+                compactSettings.FontSize = 18;
+                compactNoNetworkBar.Size = new Size(560, 28);
+                compactNoNetworkBar.Configure(compactSettings, snapshot, history);
+                using (Bitmap image = new Bitmap(compactNoNetworkBar.Width, compactNoNetworkBar.Height))
+                {
+                    compactNoNetworkBar.DrawToBitmap(image, new Rectangle(Point.Empty, image.Size));
+                    image.Save(Path.Combine(directory, "bar-preview-large-font.png"));
+                }
             }
         }
     }

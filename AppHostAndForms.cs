@@ -99,7 +99,7 @@ namespace TaskbarMonitor
                 catch { lastQuery = DateTime.UtcNow; }
                 pending = null;
             }
-            if (pending == null && (DateTime.UtcNow - lastQuery).TotalMilliseconds >= (IsSettling ? 250 : 10000))
+            if (pending == null && (DateTime.UtcNow - lastQuery).TotalMilliseconds >= (IsSettling ? 250 : 2000))
             {
                 int queryGeneration = generation;
                 pending = Task.Factory.StartNew(delegate
@@ -205,9 +205,11 @@ namespace TaskbarMonitor
             history = new MetricHistory();
             history.Configure(settings.HistorySeconds, settings.UpdateIntervalMs);
             sampler = new MetricSampler();
-            snapshot = sampler.Sample(settings);
-            history.Add(snapshot);
-            nextSampleAt = DateTime.UtcNow.AddMilliseconds(settings.UpdateIntervalMs);
+            snapshot = new MetricSnapshot();
+            AppSettings initialSettings = settings.Clone();
+            samplingTask = Task.Factory.StartNew(delegate { return sampler.Sample(initialSettings); },
+                System.Threading.CancellationToken.None, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
+            nextSampleAt = DateTime.UtcNow;
 
             messageSink = new MessageSink();
             messageSink.ShowSettingsRequested += delegate { RequestShowSettings(); };
@@ -534,6 +536,8 @@ namespace TaskbarMonitor
 
         private void UpdateTrayTooltip()
         {
+            if (settingsForm != null && !settingsForm.IsDisposed)
+                settingsForm.UpdateRuntimeStatus(GetRuntimeStatus());
             string text = "CPU " + snapshot.CpuPercent.ToString("0") + "%  RAM " + snapshot.MemoryPercent.ToString("0") + "%";
             if (settings.Metrics.Any(delegate(MetricOption m) { return m.Kind == MetricKind.Gpu && m.Enabled; }))
                 text += "  GPU " + snapshot.GpuPercent.ToString("0") + "%";
@@ -543,6 +547,20 @@ namespace TaskbarMonitor
             if (String.Equals(lastTrayTooltip, text, StringComparison.Ordinal)) return;
             trayIcon.Text = text;
             lastTrayTooltip = text;
+        }
+
+        private string GetRuntimeStatus()
+        {
+            if (snapshot.Timestamp == DateTime.MinValue) return "첫 측정 준비 중 · 센서 초기화를 기다리는 동안 설정을 변경할 수 있습니다.";
+            if (!monitoring) return "위젯 숨김 · '저장하고 위젯 켜기' 또는 트레이 아이콘으로 표시";
+            if (widgetForm != null && widgetForm.TaskbarSpaceUnavailable)
+                return "작업표시줄 공간 확인 중/부족 · 표시 위치를 위쪽 또는 팝업으로 바꿀 수 있습니다.";
+            if (lastShellFlyout && settings.PositionMode == "Inside") return "시작·검색 메뉴가 열려 있어 위젯을 잠시 숨겼습니다.";
+            if (widgetForm != null && !widgetForm.Visible) return "현재 화면/표시 설정에 따라 위젯이 숨겨져 있습니다.";
+            if (paused) return "표시 중 · 측정 일시정지";
+            if (samplingTask != null && (DateTime.UtcNow - snapshot.Timestamp).TotalSeconds > Math.Max(15, settings.UpdateIntervalMs / 1000.0 * 3))
+                return "센서 응답 지연 · 현재 숫자는 마지막 측정값입니다. 계속되면 앱을 종료 후 다시 실행하세요.";
+            return "표시 중 · CPU 온도는 ACPI 참고값, 여러 GPU의 온도·사용률은 서로 다른 장치일 수 있습니다.";
         }
 
         public void ApplySettings(AppSettings newSettings, bool startMonitor)
@@ -558,12 +576,19 @@ namespace TaskbarMonitor
                 newSettings.PopupX = currentBounds.X;
                 newSettings.PopupY = currentBounds.Y;
             }
-            settings = newSettings.Clone();
+            AppSettings candidateSettings = newSettings.Clone();
+            SettingsStore.Save(candidateSettings);
+            settings = candidateSettings;
             if (interactionMenuItem != null) interactionMenuItem.Checked = settings.WidgetInteractionEnabled;
             UpdatePositionModeMenu();
             UpdateFloatingOrderMenu();
-            SettingsStore.Save(settings);
-            SettingsStore.ApplyStartupSetting(settings.StartWithWindows);
+            string startupWarning = null;
+            try { SettingsStore.ApplyStartupSetting(settings.StartWithWindows); }
+            catch (Exception ex)
+            {
+                Program.LogError(ex);
+                startupWarning = "위젯 설정은 저장했지만 Windows 자동 실행 설정을 변경하지 못했습니다.\n" + ex.Message;
+            }
             history.Configure(settings.HistorySeconds, settings.UpdateIntervalMs);
             refreshTimer.Interval = Math.Max(50, Math.Min(250, settings.UpdateIntervalMs));
             nextSampleAt = DateTime.UtcNow;
@@ -577,6 +602,8 @@ namespace TaskbarMonitor
                 SettingsStore.Save(settings);
             }
             if (startMonitor) StartMonitor();
+            if (startupWarning != null)
+                MessageBox.Show(startupWarning, "Taskbar Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
         public void SavePopupSize(Size size)

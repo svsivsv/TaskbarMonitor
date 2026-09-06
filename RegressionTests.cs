@@ -20,6 +20,12 @@ namespace TaskbarMonitor
                 result["textPixelClipping"] = ValidateTextPixels();
                 result["dataRefreshPreservesControl"] = ValidateDataRefresh();
                 result["history600SecondsAt200ms"] = ValidateHistory();
+                result["historyUsesElapsedTime"] = ValidateTimedHistory();
+                result["missingDiskDoesNotBorrowValue"] = ValidateMissingDisk();
+                result["largeFontsFitHeight"] = ValidateFontHeight();
+                result["graphsHandleMissingSamples"] = ValidateMissingGraphSamples();
+                result["graphsKeepWholeWindowAndGaps"] = ValidateGraphWindow();
+                result["unreadableSettingsPreserved"] = ValidateSettingsRecovery();
                 result["taskbarDoesNotInventSpace"] = ValidateSlots();
                 result["startupSlotSettlesBeforeDisplay"] = ValidateSlotStabilization();
                 result["settingsDoNotOverrideShellVisibility"] =
@@ -154,7 +160,7 @@ namespace TaskbarMonitor
             for (int i = 0; i < 3010; i++) history.Add(new MetricSnapshot { CpuPercent = i });
             if (history.GetValues(MetricKind.Cpu).Count != 3000 || history.GetValues(MetricKind.Cpu)[0] != 10) return false;
             history.Configure(60, 1000);
-            return history.GetValues(MetricKind.Cpu).Count == 60;
+            return history.GetValues(MetricKind.Cpu).Count == 300;
         }
 
         private static bool ValidateSlots()
@@ -166,6 +172,111 @@ namespace TaskbarMonitor
             TaskbarFreeSlot outside = TaskbarLayoutProbe.ConstrainSlot(1920, 3000, 4000);
             return normal.Left == 126 && normal.Right == 500 && leftAligned.Left == leftAligned.Right &&
                 narrow.Right == 150 && unknown.Right == unknown.Left && outside.Right <= 1912;
+        }
+
+        private static bool ValidateMissingDisk()
+        {
+            MetricSnapshot snapshot = new MetricSnapshot { DiskPercent = 73 };
+            snapshot.DiskPercents["C:"] = 73;
+            MetricOption option = new MetricOption { Kind = MetricKind.Disk };
+            return snapshot.FormatValue(option, true, "E:") == "—" && snapshot.FormatValue(option, true, "C:") == "73%";
+        }
+
+        private static bool ValidateTimedHistory()
+        {
+            MetricHistory history = new MetricHistory();
+            history.Configure(60, 1000);
+            DateTime start = new DateTime(2026, 1, 1);
+            for (int i = 0; i < 60; i++)
+            {
+                MetricSnapshot sample = new MetricSnapshot { Timestamp = start.AddSeconds(i * 5), CpuPercent = i };
+                if (i < 59) sample.DiskPercents["E:"] = i;
+                history.Add(sample);
+            }
+            if (history.Timestamps.Count != 12 || history.GetValues(MetricKind.Cpu)[0] != 48 ||
+                !Double.IsNaN(history.GetDiskValues("E:").Last())) return false;
+            history.Add(new MetricSnapshot { Timestamp = start.AddMinutes(10), CpuPercent = 99 });
+            if (history.Timestamps.Count != 1 || history.GetValues(MetricKind.Cpu)[0] != 99) return false;
+            history.Add(new MetricSnapshot { Timestamp = start, CpuPercent = 7 });
+            return history.Timestamps.Count == 1 && history.GetValues(MetricKind.Cpu)[0] == 7;
+        }
+
+        private static bool ValidateFontHeight()
+        {
+            foreach (float dpi in new float[] { 96, 120, 144, 192 })
+            foreach (int height in new int[] { 20, 24, 44 })
+            foreach (float size in new float[] { 7, 9, 12, 18 })
+            using (Bitmap bitmap = new Bitmap(200, 80))
+            {
+                bitmap.SetResolution(dpi, dpi);
+                using (Graphics graphics = Graphics.FromImage(bitmap))
+                using (Font font = MetricBarControl.CreateHeightFittedFont(graphics, size, FontStyle.Bold, height))
+                    if (MetricBarControl.MeasureFontHeight(graphics, font) > height || font.Size > size + 0.01) return false;
+            }
+            return true;
+        }
+
+        private static bool ValidateMissingGraphSamples()
+        {
+            foreach (string style in new string[] { "Line", "Fill", "Bars" })
+            using (Bitmap bitmap = new Bitmap(100, 40))
+            using (Graphics graphics = Graphics.FromImage(bitmap))
+            {
+                MetricOption option = AppSettings.CreateDefault().Metrics.First();
+                option.GraphStyle = style;
+                option.AutoScale = true;
+                GraphRenderer.Draw(graphics, new Rectangle(0, 0, 100, 40),
+                    new double[] { Double.NaN, 10, Double.NaN, 30, 40 }, option, Color.Gray);
+                GraphRenderer.Draw(graphics, new Rectangle(0, 0, 100, 40), new double[] { Double.NaN }, option, Color.Gray);
+            }
+            return true;
+        }
+
+        private static bool ValidateSettingsRecovery()
+        {
+            string directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "TaskbarMonitor-settings-test-" + Guid.NewGuid().ToString("N"));
+            System.IO.Directory.CreateDirectory(directory);
+            string path = System.IO.Path.Combine(directory, "settings.json");
+            try
+            {
+                System.IO.File.WriteAllText(path, "{broken");
+                AppSettings settings = SettingsStore.LoadFromPath(path);
+                return settings != null && !String.IsNullOrEmpty(SettingsStore.LoadWarning) &&
+                    System.IO.File.ReadAllText(path + ".unreadable.bak") == "{broken" && System.IO.File.ReadAllText(path) == "{broken";
+            }
+            finally
+            {
+                System.IO.File.Delete(path);
+                System.IO.File.Delete(path + ".unreadable.bak");
+                System.IO.Directory.Delete(directory);
+            }
+        }
+
+        private static bool ValidateGraphWindow()
+        {
+            using (Bitmap bitmap = new Bitmap(100, 40))
+            using (Graphics graphics = Graphics.FromImage(bitmap))
+            {
+                MetricOption option = AppSettings.CreateDefault().Metrics.First();
+                option.ColorArgb = Color.White.ToArgb();
+                option.GraphStyle = "Line";
+                option.AutoScale = false;
+                option.FixedMaximum = 100;
+                double[] values = new double[3000];
+                values[0] = 100;
+                graphics.Clear(Color.Black);
+                GraphRenderer.Draw(graphics, new Rectangle(0, 0, 100, 40), values, option, Color.Transparent);
+                if (bitmap.GetPixel(0, 1).ToArgb() == Color.Black.ToArgb()) return false;
+                graphics.Clear(Color.Black);
+                DateTime end = new DateTime(2026, 1, 1);
+                GraphRenderer.Draw(graphics, new Rectangle(0, 0, 100, 40), new double[] { 50, 50 }, option, Color.Transparent,
+                    new DateTime[] { end.AddSeconds(-50), end }, 60, 1000);
+                // A long measurement pause must not draw a line through the middle.
+                for (int x = 40; x < 60; x++)
+                    for (int y = 0; y < bitmap.Height; y++)
+                        if (bitmap.GetPixel(x, y).ToArgb() != Color.Black.ToArgb()) return false;
+                return true;
+            }
         }
     }
 }

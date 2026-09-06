@@ -37,10 +37,12 @@ namespace TaskbarMonitor
         private readonly CheckedListBox diskList;
         private readonly ToolTip helpTip;
         private readonly Label applyStatus;
+        private readonly Label runtimeStatus;
         private MetricSnapshot lastSnapshot;
         private MetricHistory lastHistory;
         private bool loading;
         private bool dropDownOpen;
+        private string savedSettings;
 
         public SettingsForm(AppHost appHost, AppSettings settings)
         {
@@ -66,9 +68,10 @@ namespace TaskbarMonitor
             formLayout.Margin = Padding.Empty;
             formLayout.Padding = Padding.Empty;
             formLayout.ColumnCount = 1;
-            formLayout.RowCount = 2;
+            formLayout.RowCount = 3;
             formLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100.0f));
             formLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100.0f));
+            formLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30.0f));
             formLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 52.0f));
             Controls.Add(formLayout);
 
@@ -276,10 +279,10 @@ namespace TaskbarMonitor
             bottom.Padding = new Padding(12, 7, 12, 5);
             bottom.BackColor = Color.FromArgb(245, 245, 245);
             bottom.BorderStyle = BorderStyle.FixedSingle;
-            Button startButton = NewButton("저장하고 표시 적용", SaveAndStart);
+            Button startButton = NewButton("저장하고 위젯 켜기", SaveAndStart);
             startButton.AutoSize = true;
             startButton.Height = 32;
-            Button applyButton = NewButton("적용", ApplyOnly);
+            Button applyButton = NewButton("저장·적용", ApplyOnly);
             applyButton.Height = 32;
             Button closeButton = NewButton("닫기", delegate { Close(); });
             closeButton.Height = 32;
@@ -290,17 +293,67 @@ namespace TaskbarMonitor
             bottom.Controls.Add(applyButton);
             bottom.Controls.Add(closeButton);
             applyStatus = new Label();
-            applyStatus.AutoSize = true;
+            applyStatus.AutoSize = false;
+            applyStatus.AutoEllipsis = true;
+            applyStatus.Size = new Size(110, 22);
+            applyStatus.TextChanged += delegate { helpTip.SetToolTip(applyStatus, applyStatus.Text); };
             applyStatus.ForeColor = Color.FromArgb(0, 110, 80);
             applyStatus.Margin = new Padding(12, 9, 3, 3);
             bottom.Controls.Add(applyStatus);
             bottom.Controls.Add(resetButton);
-            formLayout.Controls.Add(bottom, 0, 1);
-            AcceptButton = startButton;
+            runtimeStatus = new Label();
+            runtimeStatus.Dock = DockStyle.Fill;
+            runtimeStatus.TextAlign = ContentAlignment.MiddleLeft;
+            runtimeStatus.AutoEllipsis = true;
+            runtimeStatus.Padding = new Padding(12, 0, 12, 0);
+            formLayout.Controls.Add(runtimeStatus, 0, 1);
+            formLayout.Controls.Add(bottom, 0, 2);
+            UpdateRuntimeStatus("설정 준비 중");
+            AcceptButton = applyButton;
 
             LoadMetricRows();
             WirePreviewEvents();
             RefreshPreview();
+            savedSettings = SerializeWorking();
+        }
+
+        private string SerializeWorking()
+        {
+            return new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(working);
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (e.CloseReason == CloseReason.UserClosing)
+            {
+                metricGrid.EndEdit();
+                ReadControlsToWorking();
+                if (savedSettings != SerializeWorking())
+                {
+                    DialogResult choice = MessageBox.Show(this, "변경한 설정을 저장할까요?\n아니요: 변경을 버리고 닫기 / 취소: 설정 계속하기",
+                        "저장하지 않은 변경", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                    if (choice == DialogResult.Cancel) e.Cancel = true;
+                    else if (choice == DialogResult.Yes)
+                    {
+                        try { host.ApplySettings(working, false); savedSettings = SerializeWorking(); }
+                        catch (Exception ex)
+                        {
+                            e.Cancel = true;
+                            MessageBox.Show(this, "설정을 저장하지 못했습니다. 창을 유지합니다.\n" + ex.Message,
+                                "Taskbar Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        }
+                    }
+                }
+            }
+            base.OnFormClosing(e);
+        }
+
+        public void UpdateRuntimeStatus(string status)
+        {
+            string text = String.IsNullOrEmpty(SettingsStore.LoadWarning) ? status : SettingsStore.LoadWarning;
+            if (runtimeStatus.Text == text) return;
+            runtimeStatus.Text = text;
+            helpTip.SetToolTip(runtimeStatus, text);
         }
 
         private DataGridView CreateMetricGrid()
@@ -671,6 +724,7 @@ namespace TaskbarMonitor
                 return;
             }
             host.ApplySettings(working, true);
+            savedSettings = SerializeWorking();
             applyStatus.Text = "저장·표시 적용됨";
         }
 
@@ -678,6 +732,7 @@ namespace TaskbarMonitor
         {
             ReadControlsToWorking();
             host.ApplySettings(working, false);
+            savedSettings = SerializeWorking();
             RefreshPreview();
             applyStatus.Text = "적용됨";
         }

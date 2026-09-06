@@ -9,10 +9,11 @@ namespace TaskbarMonitor
 {
     internal static class GraphRenderer
     {
-        public static void Draw(Graphics graphics, Rectangle bounds, IList<double> values, MetricOption option, Color gridColor)
+        public static void Draw(Graphics graphics, Rectangle bounds, IList<double> values, MetricOption option, Color gridColor,
+            IList<DateTime> timestamps = null, int windowSeconds = 60, int intervalMs = 1000)
         {
             if (bounds.Width < 3 || bounds.Height < 3 || values == null || values.Count == 0) return;
-            double maximum = option.AutoScale ? values.Max() * 1.15 : option.FixedMaximum;
+            double maximum = option.AutoScale ? values.Where(IsFinite).DefaultIfEmpty(0).Max() * 1.15 : option.FixedMaximum;
             if (maximum <= 0.0001) maximum = option.Kind == MetricKind.Network ? 1024.0 : 100.0;
             maximum = Math.Max(maximum, option.Kind == MetricKind.Network ? 1024.0 : 1.0);
 
@@ -20,17 +21,35 @@ namespace TaskbarMonitor
                 using (Pen gridPen = new Pen(gridColor, 1.0f))
                     graphics.DrawLine(gridPen, bounds.Left, bounds.Top + bounds.Height / 2, bounds.Right, bounds.Top + bounds.Height / 2);
 
-            int pointCount = Math.Min(values.Count, Math.Max(2, bounds.Width));
-            PointF[] points = new PointF[pointCount];
-            int start = values.Count - pointCount;
-            for (int index = 0; index < pointCount; index++)
+            bool timed = timestamps != null && timestamps.Count == values.Count;
+            DateTime end = timed ? timestamps[timestamps.Count - 1] : DateTime.MinValue;
+            List<PointF> segment = new List<PointF>();
+            for (int index = 0; index < values.Count; index++)
             {
-                float x = pointCount == 1 ? bounds.Left : bounds.Left + index * (bounds.Width - 1.0f) / (pointCount - 1.0f);
-                double normalized = Math.Max(0.0, Math.Min(1.0, values[start + index] / maximum));
+                bool gap = timed && index > 0 &&
+                    (timestamps[index] - timestamps[index - 1]).TotalMilliseconds > Math.Max(500, intervalMs * 2.5);
+                if (gap || !IsFinite(values[index]))
+                {
+                    DrawSegment(graphics, bounds, segment, option);
+                    segment.Clear();
+                    if (!IsFinite(values[index])) continue;
+                }
+                float fraction = timed ? (float)(1.0 - (end - timestamps[index]).TotalSeconds / Math.Max(1, windowSeconds)) :
+                    (values.Count == 1 ? 1 : index / (float)(values.Count - 1));
+                float x = bounds.Left + Math.Max(0, Math.Min(1, fraction)) * (bounds.Width - 1.0f);
+                double normalized = Math.Max(0.0, Math.Min(1.0, values[index] / maximum));
                 float y = bounds.Bottom - 1 - (float)(normalized * (bounds.Height - 2));
-                points[index] = new PointF(x, y);
+                segment.Add(new PointF(x, y));
             }
+            DrawSegment(graphics, bounds, segment, option);
+        }
 
+        private static bool IsFinite(double value) { return !Double.IsNaN(value) && !Double.IsInfinity(value); }
+
+        private static void DrawSegment(Graphics graphics, Rectangle bounds, List<PointF> segment, MetricOption option)
+        {
+            if (segment.Count == 0) return;
+            PointF[] points = segment.ToArray();
             Color color = option.Color;
             if (String.Equals(option.GraphStyle, "Bars", StringComparison.OrdinalIgnoreCase))
             {
@@ -54,6 +73,8 @@ namespace TaskbarMonitor
                 using (Pen pen = new Pen(color, 1.4f)) graphics.DrawLines(pen, points);
                 graphics.SmoothingMode = SmoothingMode.None;
             }
+            else
+                using (Brush brush = new SolidBrush(color)) graphics.FillRectangle(brush, points[0].X, points[0].Y, 1, 1);
         }
     }
 
@@ -219,8 +240,8 @@ namespace TaskbarMonitor
             nextPageBounds = overflow ? new Rectangle(Width - navigationWidth - 1, 1, navigationWidth, Math.Max(1, Height - 2)) : Rectangle.Empty;
             if (overflow) DrawNavigation(graphics, foreground);
             float labelSize = integratedStyle ? Math.Max(7.0f, settings.FontSize - 0.7f) : settings.FontSize;
-            using (Font labelFont = new Font("Segoe UI", labelSize, FontStyle.Regular, GraphicsUnit.Point))
-            using (Font valueFont = new Font("Segoe UI", Math.Max(7.0f, labelSize - 0.4f), FontStyle.Bold, GraphicsUnit.Point))
+            using (Font labelFont = CreateHeightFittedFont(graphics, labelSize, FontStyle.Regular, Math.Max(1, Height - 4)))
+            using (Font valueFont = CreateHeightFittedFont(graphics, Math.Max(7.0f, labelSize - 0.4f), FontStyle.Bold, Math.Max(1, Height - 4)))
             {
                 int x = 1 + navigationWidth;
                 for (int visibleIndex = 0; visibleIndex < shown; visibleIndex++)
@@ -318,7 +339,7 @@ namespace TaskbarMonitor
             string value = option.ShowValue ? snapshot.FormatValue(option, true, item.DiskName) : String.Empty;
             string temperature = snapshot.FormatTemperature(option);
             int graphThreshold = integratedStyle ? 20 : 25;
-            int textHeight = option.ShowGraph && inner.Height >= graphThreshold ? (integratedStyle ? 13 : 16) : inner.Height;
+            int textHeight = Math.Min(inner.Height, Math.Max(MeasureFontHeight(graphics, labelFont), MeasureFontHeight(graphics, valueFont)));
             int measuredLabelWidth = TextRenderer.MeasureText(graphics, item.Label, labelFont,
                 new Size(Int32.MaxValue, textHeight), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
             int measuredValueWidth = String.IsNullOrEmpty(value) ? 0 : TextRenderer.MeasureText(graphics, value, valueFont,
@@ -339,13 +360,34 @@ namespace TaskbarMonitor
             if (option.ShowValue)
                 DrawBoundedText(graphics, value, valueFont, layout.Value, foreground, true);
 
-            if (option.ShowGraph && inner.Height >= graphThreshold && (!veryNarrow || settings.AutoFit))
+            if (option.ShowGraph && inner.Height >= graphThreshold && inner.Height - textHeight >= 5 && (!veryNarrow || settings.AutoFit))
             {
                 Rectangle graphRect = new Rectangle(inner.Left, inner.Top + textHeight + 1, inner.Width, Math.Max(2, inner.Height - textHeight - 2));
                 IList<double> values = String.IsNullOrEmpty(item.DiskName) ? history.GetValues(option.Kind) : history.GetDiskValues(item.DiskName);
                 GraphRenderer.Draw(graphics, graphRect, values, option,
-                    seamlessVisual ? Color.Transparent : Color.FromArgb(28, foreground));
+                    seamlessVisual ? Color.Transparent : Color.FromArgb(28, foreground),
+                    history.Timestamps, history.WindowSeconds, history.IntervalMs);
             }
+        }
+
+        internal static Font CreateHeightFittedFont(Graphics graphics, float points, FontStyle style, int availableHeight)
+        {
+            Font font = new Font("Segoe UI", points, style, GraphicsUnit.Point);
+            for (int attempt = 0; attempt < 8; attempt++)
+            {
+                int height = MeasureFontHeight(graphics, font);
+                if (height <= availableHeight || font.Size <= 0.1f) return font;
+                float next = Math.Max(0.1f, font.Size * Math.Max(0.1f, availableHeight - 1.0f) / height);
+                font.Dispose();
+                font = new Font("Segoe UI", next, style, GraphicsUnit.Point);
+            }
+            return font;
+        }
+
+        internal static int MeasureFontHeight(Graphics graphics, Font font)
+        {
+            return TextRenderer.MeasureText(graphics, "Ag한°C", font, new Size(10000, 10000),
+                TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Height;
         }
 
         internal static void DrawBoundedText(Graphics graphics, string text, Font font,
