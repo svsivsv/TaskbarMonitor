@@ -1,6 +1,17 @@
 ﻿param([switch]$SkipBuild)
 $ErrorActionPreference = 'Stop'
 $testRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+# Reject accidental release-folder additions and tracked logs, including force-added files.
+$releaseFiles = @(Get-ChildItem -LiteralPath (Join-Path $testRoot 'release') -Force -Recurse -File)
+if (@($releaseFiles | Where-Object { $_.FullName -ne (Join-Path $testRoot 'release\TaskbarMonitor.exe') }).Count -ne 0) {
+    throw '배포 폴더에는 TaskbarMonitor.exe만 허용합니다. 로그나 개인 파일을 배포하지 마세요.'
+}
+if (Test-Path -LiteralPath (Join-Path $testRoot '.git')) {
+    $trackedFiles = @(git -C $testRoot ls-files)
+    if ($LASTEXITCODE -ne 0) { throw 'Git 로그 파일 제외 검사를 수행하지 못했습니다.' }
+    $trackedLogs = @($trackedFiles | Where-Object { $_ -match '(?i)\.log$' })
+    if ($trackedLogs.Count -ne 0) { throw '오류 로그가 Git에 포함되어 있습니다. 배포 검사를 중단합니다.' }
+}
 foreach ($requiredFile in @('src\Program.cs', 'src\app.manifest', 'tests\RegressionTests.cs', 'LICENSE')) {
     if (-not (Test-Path -LiteralPath (Join-Path $testRoot $requiredFile) -PathType Leaf)) { throw "필수 프로젝트 파일이 없습니다: $requiredFile" }
 }

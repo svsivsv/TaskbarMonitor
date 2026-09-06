@@ -16,6 +16,7 @@ namespace TaskbarMonitor
             try
             {
                 result["temperatureExpiresAndRecovers"] = ValidateTemperatureCache();
+                result["errorLogsExcludePrivateText"] = ValidateErrorLogPrivacy();
                 result["productionTextLayout"] = ValidateTextLayout();
                 result["textPixelClipping"] = ValidateTextPixels();
                 result["dataRefreshPreservesControl"] = ValidateDataRefresh();
@@ -63,6 +64,27 @@ namespace TaskbarMonitor
             if (cache.Read(13 * second) != 61) return false;
             cache.Clear();
             return !cache.Read(14 * second).HasValue;
+        }
+
+        private static bool ValidateErrorLogPrivacy()
+        {
+            const string privateText = "PRIVATE_SENTINEL";
+            Exception captured;
+            try
+            {
+                var inner = new System.IO.FileNotFoundException(
+                    "token=" + privateText + " https://example.invalid/" + privateText,
+                    @"C:\Users\" + privateText + @"\개인\settings.json");
+                inner.Data[privateText] = @"\\server\" + privateText;
+                throw new InvalidOperationException("message " + privateText, inner);
+            }
+            catch (Exception ex) { captured = ex; }
+            string record = Program.FormatErrorRecord(captured);
+            return !record.Contains(privateText) && !record.Contains("settings.json") &&
+                !record.Contains("C:\\") && !record.Contains("https://") &&
+                record.Contains("InvalidOperationException") && record.Contains("FileNotFoundException") &&
+                record.Contains("Code: 0x") && record.Contains("RegressionTests.ValidateErrorLogPrivacy") &&
+                Program.FormatErrorRecord(null) == String.Empty;
         }
 
         private static bool ValidateSlotStabilization()

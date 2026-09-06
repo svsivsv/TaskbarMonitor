@@ -123,12 +123,42 @@ namespace TaskbarMonitor
                     if (File.Exists(logPath) && new FileInfo(logPath).Length >= MaximumErrorLogBytes)
                         File.WriteAllText(logPath, "이전 오류 기록은 512KB 제한으로 정리되었습니다." + Environment.NewLine);
                     File.AppendAllText(logPath,
-                        DateTime.Now.ToString("s") + Environment.NewLine + exception + Environment.NewLine + Environment.NewLine);
+                        FormatErrorRecord(exception));
                 }
             }
             catch
             {
             }
+        }
+
+        // Allowlist diagnostics rather than attempting to redact arbitrary exception text.
+        // Message, ToString(), Data, file names and source-file stack information are never logged.
+        internal static string FormatErrorRecord(Exception exception)
+        {
+            if (exception == null) return String.Empty;
+            System.Text.StringBuilder record = new System.Text.StringBuilder();
+            record.AppendLine(DateTime.UtcNow.ToString("s", System.Globalization.CultureInfo.InvariantCulture) + "Z");
+            for (int depth = 0; exception != null && depth < 4; depth++, exception = exception.InnerException)
+            {
+                Type errorType = exception.GetType();
+                bool knownType = errorType.Assembly == typeof(Exception).Assembly ||
+                    errorType.Assembly == typeof(Program).Assembly;
+                record.AppendLine("Error: " + (knownType ? errorType.Name : "ExternalException") +
+                    " / Code: 0x" + exception.HResult.ToString("X8", System.Globalization.CultureInfo.InvariantCulture));
+                System.Diagnostics.StackFrame[] frames = new System.Diagnostics.StackTrace(exception, false).GetFrames();
+                if (frames == null) continue;
+                int count = 0;
+                foreach (System.Diagnostics.StackFrame frame in frames)
+                {
+                    System.Reflection.MethodBase method = frame.GetMethod();
+                    Type owner = method == null ? null : method.DeclaringType;
+                    if (owner == null || owner.Assembly != typeof(Program).Assembly) continue;
+                    record.AppendLine("  at " + owner.Name + "." + method.Name);
+                    if (++count == 12) break;
+                }
+            }
+            record.AppendLine();
+            return record.ToString();
         }
 
         private static void RunSelfTest(string outputPath, bool exerciseWindow)
