@@ -1,4 +1,4 @@
-param([switch]$SkipBuild)
+﻿param([switch]$SkipBuild)
 $ErrorActionPreference = 'Stop'
 $testRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $SkipBuild) { & (Join-Path $testRoot 'build.ps1') }
