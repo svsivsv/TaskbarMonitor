@@ -21,6 +21,34 @@ namespace TaskbarMonitor
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
+            if (args.Length > 1 && String.Equals(args[0], "--trace-layout", StringComparison.OrdinalIgnoreCase))
+            {
+                // Read-only startup diagnostic; does not send input to the widget.
+                List<object> samples = new List<object>();
+                System.Diagnostics.Stopwatch timer = System.Diagnostics.Stopwatch.StartNew();
+                while (timer.ElapsedMilliseconds < 12000)
+                {
+                    IntPtr window = NativeMethods.FindWindow(null, "Taskbar Monitor");
+                    NativeMethods.RECT rect;
+                    if (window != IntPtr.Zero && NativeMethods.IsWindowVisible(window) && NativeMethods.GetWindowRect(window, out rect))
+                        samples.Add(new { elapsedMs = timer.ElapsedMilliseconds, handle = window.ToInt64(),
+                            left = rect.Left, top = rect.Top, right = rect.Right, bottom = rect.Bottom });
+                    Thread.Sleep(100);
+                }
+                File.WriteAllText(args[1], new JavaScriptSerializer().Serialize(samples));
+                return;
+            }
+
+            if (args.Length > 0 && String.Equals(args[0], "--regression-test", StringComparison.OrdinalIgnoreCase))
+            {
+                string path = args.Length > 1 ? args[1] : Path.Combine(Path.GetTempPath(), "TaskbarMonitor-regression.json");
+                Dictionary<string, object> result = RegressionTests.Run();
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)));
+                File.WriteAllText(path, new JavaScriptSerializer().Serialize(result));
+                Environment.ExitCode = Convert.ToBoolean(result["success"]) ? 0 : 1;
+                return;
+            }
+
             if (args.Length > 0 && (String.Equals(args[0], "--self-test", StringComparison.OrdinalIgnoreCase) ||
                 String.Equals(args[0], "--self-test-window", StringComparison.OrdinalIgnoreCase)))
             {
@@ -137,13 +165,9 @@ namespace TaskbarMonitor
                     migratedSettings.Metrics.First(delegate(MetricOption option) { return option.Kind == MetricKind.Gpu; }).TemperatureColorArgb ==
                         Color.FromArgb(255, 184, 74).ToArgb();
                 report["temperatureMigrationPassed"] = temperatureMigrationPassed;
-                bool temperatureRetentionPassed = MetricSampler.PreserveLastTemperature(48.0, null) == 48.0 &&
-                    MetricSampler.PreserveLastTemperature(48.0, 51.0) == 51.0 &&
-                    !MetricSampler.PreserveLastTemperature(null, null).HasValue;
+                bool temperatureRetentionPassed = RegressionTests.ValidateTemperatureCache();
                 report["temperatureRetentionPassed"] = temperatureRetentionPassed;
-                bool temperatureBearingLayoutPassed = MetricBarControl.CanKeepTemperatureUnscaled(88, 82) &&
-                    MetricBarControl.CanKeepTemperatureUnscaled(82, 82) &&
-                    !MetricBarControl.CanKeepTemperatureUnscaled(88, 64);
+                bool temperatureBearingLayoutPassed = RegressionTests.ValidateTextLayout();
                 report["temperatureBearingLayoutPassed"] = temperatureBearingLayoutPassed;
                 bool insideAutoFitWidthPassed =
                     WidgetForm.CalculateInsideWidgetWidth(true, 560, 284, 344) == 344 &&
@@ -155,7 +179,7 @@ namespace TaskbarMonitor
                     !AppHost.ShouldMaintainTaskbarLayer(true);
                 report["taskbarLayerPolicyPassed"] = taskbarLayerPolicyPassed;
                 bool settingsVisibilityPolicyPassed =
-                    !WidgetForm.ShouldHideForEnvironment(true, true, true) &&
+                    WidgetForm.ShouldHideForEnvironment(true, true, true) &&
                     WidgetForm.ShouldHideForEnvironment(false, true, true) &&
                     !WidgetForm.ShouldHideForEnvironment(false, false, true) &&
                     !WidgetForm.ShouldHideForEnvironment(false, true, false);
@@ -219,10 +243,7 @@ namespace TaskbarMonitor
                         temperatureFormattingSnapshot.FormatCompactTemperature(defaultCpuOption) == "57°";
                     report["temperatureReadingsPlausible"] = temperatureReadingsPlausible;
                     report["temperatureFormattingPassed"] = temperatureFormattingPassed;
-                    bool temperatureTextFitPassed =
-                        MetricBarControl.ChooseTemperatureText("58°C", 23, "58°", 16, 45, 68) == "58°C" &&
-                        MetricBarControl.ChooseTemperatureText("58°C", 23, "58°", 16, 45, 58) == "58°" &&
-                        MetricBarControl.ChooseTemperatureText("58°C", 23, "58°", 16, 45, 50) == String.Empty;
+                    bool temperatureTextFitPassed = RegressionTests.ValidateTextLayout();
                     report["temperatureTextFitPassed"] = temperatureTextFitPassed;
                     IntPtr desktopWindow = NativeMethods.FindWindow("Progman", null);
                     bool desktopExcluded = !NativeMethods.IsWindowFullscreen(desktopWindow);
@@ -256,7 +277,7 @@ namespace TaskbarMonitor
                         NativeMethods.SendMessage(widgetWindow, NativeMethods.WM_APP_QUERY_TASK_MANAGER_LAUNCH_COUNT,
                             IntPtr.Zero, IntPtr.Zero).ToInt32();
                     bool disabledDoubleClickSuppressed = !exerciseWindow || widgetWindow != IntPtr.Zero;
-                    if (widgetChild != IntPtr.Zero && !persistedSettings.WidgetInteractionEnabled)
+                    if (exerciseWindow && widgetChild != IntPtr.Zero && !persistedSettings.WidgetInteractionEnabled)
                     {
                         int launchesBefore = runtimeTaskManagerLaunchCount;
                         NativeMethods.SendMessage(widgetChild, NativeMethods.WM_LBUTTONDBLCLK,
@@ -279,14 +300,21 @@ namespace TaskbarMonitor
                     report["clickThroughNativeStatePassed"] = clickThroughNativeStatePassed;
                     IntPtr embeddedWidget = widgetWindow != IntPtr.Zero &&
                         NativeMethods.GetParent(widgetWindow) == taskbarWindow ? widgetWindow : IntPtr.Zero;
-                    NativeMethods.RECT taskbarRect;
+                    NativeMethods.RECT taskbarRect = new NativeMethods.RECT();
+                    TaskbarFreeSlot diagnosticSlot = new TaskbarFreeSlot();
                     if (taskbarWindow != IntPtr.Zero && NativeMethods.GetWindowRect(taskbarWindow, out taskbarRect))
                     {
                         Rectangle taskbarBounds = taskbarRect.ToRectangle();
                         report["taskbarBounds"] = taskbarBounds.X + "," + taskbarBounds.Y + "," +
                             taskbarBounds.Width + "," + taskbarBounds.Height;
-                        TaskbarFreeSlot slot = TaskbarLayoutProbe.GetFreeSlot(taskbarWindow, taskbarBounds, settings.TaskbarOffset);
-                        report["taskbarFreeSlot"] = slot.Left + "," + slot.Right;
+                        diagnosticSlot = TaskbarLayoutProbe.GetFreeSlot(taskbarWindow, taskbarBounds, persistedSettings.TaskbarOffset);
+                        for (int attempt = 0; attempt < 60 && !diagnosticSlot.IsKnown; attempt++)
+                        {
+                            Thread.Sleep(50);
+                            diagnosticSlot = TaskbarLayoutProbe.GetFreeSlot(taskbarWindow, taskbarBounds, persistedSettings.TaskbarOffset);
+                        }
+                        report["taskbarSlotKnown"] = diagnosticSlot.IsKnown;
+                        report["taskbarFreeSlot"] = diagnosticSlot.Left + "," + diagnosticSlot.Right;
                     }
                     report["embeddedWidgetFound"] = embeddedWidget != IntPtr.Zero;
                     report["embeddedWidgetVisible"] = embeddedWidget != IntPtr.Zero && NativeMethods.IsWindowVisible(embeddedWidget);
@@ -305,8 +333,12 @@ namespace TaskbarMonitor
                             embeddedBounds.Width + "," + embeddedBounds.Height;
                         report["embeddedWidgetParentMatchesTaskbar"] = parentMatches;
                         report["embeddedWidgetContainedInTaskbar"] = contained;
+                        bool containedInFreeSlot = diagnosticSlot.IsKnown &&
+                            embeddedBounds.Left >= taskbarRect.Left + diagnosticSlot.Left &&
+                            embeddedBounds.Right <= taskbarRect.Left + diagnosticSlot.Right;
+                        report["embeddedWidgetContainedInFreeSlot"] = containedInFreeSlot;
                         report["embeddedWidgetStyle"] = NativeMethods.GetWindowLong(embeddedWidget, NativeMethods.GWL_STYLE);
-                        bool actualEmbeddedDockingPassed = parentMatches && contained && NativeMethods.IsWindowVisible(embeddedWidget) &&
+                        bool actualEmbeddedDockingPassed = parentMatches && contained && containedInFreeSlot && NativeMethods.IsWindowVisible(embeddedWidget) &&
                             (NativeMethods.GetWindowLong(embeddedWidget, NativeMethods.GWL_EXSTYLE) & NativeMethods.WS_EX_TOPMOST) != 0;
                         embeddedDockingPassed = !exerciseWindow || actualEmbeddedDockingPassed;
                     }

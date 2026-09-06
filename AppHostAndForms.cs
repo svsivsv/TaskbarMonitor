@@ -13,6 +13,30 @@ namespace TaskbarMonitor
     {
         public int Left;
         public int Right;
+        public bool IsKnown;
+    }
+
+    internal sealed class TaskbarSlotStabilizer
+    {
+        private TaskbarFreeSlot candidate;
+        private DateTime candidateSince;
+        public TaskbarFreeSlot Current { get; private set; }
+
+        public bool Observe(TaskbarFreeSlot slot, DateTime now)
+        {
+            if (!slot.IsKnown) return false;
+            bool changed = !candidate.IsKnown || candidate.Left != slot.Left || candidate.Right != slot.Right;
+            if (changed) { candidate = slot; candidateSince = now; }
+            // Shrink immediately to protect shell buttons; expand only after
+            // repeated observations have agreed for half a second.
+            if (Current.IsKnown)
+            {
+                int left = Math.Max(Current.Left, slot.Left);
+                Current = new TaskbarFreeSlot { Left = left, Right = Math.Max(left, Math.Min(Current.Right, slot.Right)), IsKnown = true };
+            }
+            if ((now - candidateSince).TotalMilliseconds >= 500) Current = candidate;
+            return changed;
+        }
     }
 
     internal static class TaskbarLayoutProbe
@@ -20,18 +44,81 @@ namespace TaskbarMonitor
         private static DateTime lastQuery = DateTime.MinValue;
         private static IntPtr lastTaskbar = IntPtr.Zero;
         private static Rectangle lastBounds = Rectangle.Empty;
-        private static int lastFallbackLeft = Int32.MinValue;
+        private static DateTime lastVerifiedQuery = DateTime.MinValue;
         private static TaskbarFreeSlot cachedSlot;
+        private static Task<ProbeResult> pending;
+        private static TaskbarSlotStabilizer stabilizer = new TaskbarSlotStabilizer();
+        private static DateTime settleUntil = DateTime.MinValue;
+        private static int generation;
+        internal static bool IsSettling { get { return DateTime.UtcNow < settleUntil; } }
+
+        public static void NotifyLayoutChanged()
+        {
+            generation++;
+            lastQuery = DateTime.MinValue;
+            settleUntil = DateTime.UtcNow.AddSeconds(5);
+        }
+
+        private sealed class ProbeResult
+        {
+            public IntPtr Taskbar;
+            public Rectangle Bounds;
+            public TaskbarFreeSlot Slot;
+            public int Generation;
+        }
 
         public static TaskbarFreeSlot GetFreeSlot(IntPtr taskbar, Rectangle taskbarBounds, int fallbackLeft)
         {
-            if (taskbar == lastTaskbar && taskbarBounds == lastBounds && fallbackLeft == lastFallbackLeft &&
-                (DateTime.UtcNow - lastQuery).TotalSeconds < 10.0)
-                return cachedSlot;
+            if (taskbar != lastTaskbar || taskbarBounds != lastBounds)
+            {
+                lastTaskbar = taskbar;
+                lastBounds = taskbarBounds;
+                lastQuery = DateTime.MinValue;
+                lastVerifiedQuery = DateTime.MinValue;
+                cachedSlot = new TaskbarFreeSlot();
+                stabilizer = new TaskbarSlotStabilizer();
+                NotifyLayoutChanged();
+            }
+            if (pending != null && pending.IsCompleted)
+            {
+                try
+                {
+                    ProbeResult result = pending.GetAwaiter().GetResult();
+                    if (result.Taskbar == taskbar && result.Bounds == taskbarBounds && result.Generation == generation)
+                    {
+                        if (result.Slot.IsKnown)
+                        {
+                            if (stabilizer.Observe(result.Slot, DateTime.UtcNow))
+                                settleUntil = DateTime.UtcNow.AddSeconds(5);
+                            cachedSlot = stabilizer.Current;
+                            lastVerifiedQuery = DateTime.UtcNow;
+                        }
+                        lastQuery = DateTime.UtcNow;
+                    }
+                }
+                catch { lastQuery = DateTime.UtcNow; }
+                pending = null;
+            }
+            if (pending == null && (DateTime.UtcNow - lastQuery).TotalMilliseconds >= (IsSettling ? 250 : 10000))
+            {
+                int queryGeneration = generation;
+                pending = Task.Factory.StartNew(delegate
+                {
+                    return new ProbeResult { Taskbar = taskbar, Bounds = taskbarBounds,
+                        Slot = Probe(taskbar, taskbarBounds, 0), Generation = queryGeneration };
+                });
+            }
+            // One temporary shell-provider failure need not flicker the widget.
+            // Never retain unverified geometry indefinitely if the provider stalls.
+            bool fresh = (DateTime.UtcNow - lastVerifiedQuery).TotalSeconds < 30.0;
+            return ConstrainSlot(taskbarBounds.Width, Math.Max(fallbackLeft, cachedSlot.Left),
+                fresh && cachedSlot.IsKnown ? (int?)cachedSlot.Right : null);
+        }
 
-            TaskbarFreeSlot slot = new TaskbarFreeSlot();
-            slot.Left = fallbackLeft;
-            slot.Right = taskbarBounds.Width / 2 - 72;
+        private static TaskbarFreeSlot Probe(IntPtr taskbar, Rectangle taskbarBounds, int fallbackLeft)
+        {
+            int left = Math.Max(0, fallbackLeft);
+            int? right = null;
             try
             {
                 AutomationElement root = AutomationElement.FromHandle(taskbar);
@@ -40,24 +127,26 @@ namespace TaskbarMonitor
                 if (widgets != null)
                 {
                     System.Windows.Rect rect = widgets.Current.BoundingRectangle;
-                    if (!rect.IsEmpty) slot.Left = Math.Max(slot.Left, (int)Math.Ceiling(rect.Right - taskbarBounds.Left + 8));
+                    if (!rect.IsEmpty) left = Math.Max(left, (int)Math.Ceiling(rect.Right - taskbarBounds.Left + 8));
                 }
                 if (start != null)
                 {
                     System.Windows.Rect rect = start.Current.BoundingRectangle;
-                    if (!rect.IsEmpty) slot.Right = (int)Math.Floor(rect.Left - taskbarBounds.Left - 8);
+                    if (!rect.IsEmpty) right = (int)Math.Floor(rect.Left - taskbarBounds.Left - 8);
                 }
             }
             catch
             {
             }
-            if (slot.Right <= slot.Left + 80) slot.Right = taskbarBounds.Width / 2 - 72;
-            lastQuery = DateTime.UtcNow;
-            lastTaskbar = taskbar;
-            lastBounds = taskbarBounds;
-            lastFallbackLeft = fallbackLeft;
-            cachedSlot = slot;
-            return slot;
+            return ConstrainSlot(taskbarBounds.Width, left, right);
+        }
+
+        internal static TaskbarFreeSlot ConstrainSlot(int taskbarWidth, int left, int? startLeft)
+        {
+            int safeLeft = Math.Max(0, Math.Min(left, Math.Max(0, taskbarWidth - 8)));
+            int safeRight = startLeft.HasValue ? Math.Min(startLeft.Value, taskbarWidth - 8) : safeLeft;
+            // Unknown or occupied space is not a license to overlap shell buttons.
+            return new TaskbarFreeSlot { Left = safeLeft, Right = Math.Max(safeLeft, safeRight), IsKnown = startLeft.HasValue };
         }
 
         private static AutomationElement FindByAutomationId(AutomationElement root, string automationId)
@@ -361,22 +450,24 @@ namespace TaskbarMonitor
 
             if (widgetForm != null)
             {
+                bool settingsActive = settingsForm != null && !settingsForm.IsDisposed && settingsForm.Visible &&
+                    settingsForm.WindowState != FormWindowState.Minimized;
+                widgetForm.SetSettingsOpen(settingsActive);
                 widgetForm.UpdateVisibilityState(lastFullscreen, lastShellFlyout, monitoring);
-                bool configurationUiOpen = contextMenu.Visible ||
-                    (settingsForm != null && !settingsForm.IsDisposed && settingsForm.Visible &&
-                     settingsForm.WindowState != FormWindowState.Minimized);
-                // Repainting or reshaping the popup while its menu/settings UI is
-                // in use can dismiss native dropdowns. Freeze only the widget
-                // presentation; sampling and the settings preview continue.
+                bool configurationUiOpen = contextMenu.Visible || settingsActive;
+                // Keep native layout/style changes away from open menus and
+                // settings, but continue painting readings without activation.
+                if (sampleChanged) widgetForm.UpdateReadings(snapshot, history);
                 bool layoutRefreshDue = (now - lastWidgetRefresh).TotalSeconds >= 1.0;
+                if (!contextMenu.Visible) widgetForm.RefreshTaskbarPlacement();
                 if (!configurationUiOpen && (sampleChanged || layoutRefreshDue))
                 {
                     widgetForm.UpdateData(settings, snapshot, history);
                     lastWidgetRefresh = now;
                 }
-                if (ShouldMaintainTaskbarLayer(contextMenu.Visible)) widgetForm.MaintainTaskbarLayer();
+                if (ShouldMaintainTaskbarLayer(configurationUiOpen)) widgetForm.MaintainTaskbarLayer();
             }
-            if (sampleChanged) UpdateTrayTooltip();
+            UpdateTrayTooltip();
             if (sampleChanged && settingsForm != null && !settingsForm.IsDisposed)
                 settingsForm.UpdatePreview(snapshot, history);
 
@@ -437,9 +528,7 @@ namespace TaskbarMonitor
 
         internal static bool ShouldMaintainTaskbarLayer(bool contextMenuVisible)
         {
-            // Keeping the taskbar layer does not repaint or activate the widget,
-            // so it is safe while the settings form is open. Pause it only while
-            // the widget's own context menu is visible to avoid covering the menu.
+            // Do not raise the owned overlay while configuration UI is active.
             return !contextMenuVisible;
         }
 
@@ -448,6 +537,8 @@ namespace TaskbarMonitor
             string text = "CPU " + snapshot.CpuPercent.ToString("0") + "%  RAM " + snapshot.MemoryPercent.ToString("0") + "%";
             if (settings.Metrics.Any(delegate(MetricOption m) { return m.Kind == MetricKind.Gpu && m.Enabled; }))
                 text += "  GPU " + snapshot.GpuPercent.ToString("0") + "%";
+            if (widgetForm != null && widgetForm.TaskbarSpaceUnavailable)
+                text = "작업표시줄 빈 공간 확인 중/부족 · 우클릭으로 표시 모드 변경";
             text = text.Length > 63 ? text.Substring(0, 63) : text;
             if (String.Equals(lastTrayTooltip, text, StringComparison.Ordinal)) return;
             trayIcon.Text = text;
@@ -526,6 +617,7 @@ namespace TaskbarMonitor
 
         public void ShowSettings()
         {
+            TaskbarLayoutProbe.NotifyLayoutChanged();
             if (widgetForm != null && !widgetForm.IsDisposed) widgetForm.SetSettingsOpen(true);
             if (settingsForm != null && !settingsForm.IsDisposed)
             {
@@ -538,6 +630,7 @@ namespace TaskbarMonitor
             settingsForm = new SettingsForm(this, settings.Clone());
             settingsForm.FormClosed += delegate
             {
+                TaskbarLayoutProbe.NotifyLayoutChanged();
                 settingsForm = null;
                 if (widgetForm != null && !widgetForm.IsDisposed) widgetForm.SetSettingsOpen(false);
             };
@@ -631,6 +724,10 @@ namespace TaskbarMonitor
         private bool fullscreenClickThrough;
         private bool fullscreenActive;
         private bool settingsOpen;
+        private bool taskbarSpaceUnavailable;
+        private DateTime lastLayerMaintenance;
+        private DateTime lastPlacementRefresh;
+        public bool TaskbarSpaceUnavailable { get { return taskbarSpaceUnavailable; } }
         private bool embedded;
         private IntPtr taskbarParent;
         private bool hiddenForFullscreen;
@@ -867,6 +964,11 @@ namespace TaskbarMonitor
             UpdateClickThrough();
         }
 
+        public void UpdateReadings(MetricSnapshot snapshot, MetricHistory history)
+        {
+            bar.UpdateReadings(snapshot, history);
+        }
+
         private void ApplyVisualStyle(bool seamless, int opacityPercent)
         {
             int clampedOpacity = Math.Max(25, Math.Min(100, opacityPercent));
@@ -904,6 +1006,7 @@ namespace TaskbarMonitor
         public void PositionWidget()
         {
             AppSettings settings = host.Settings;
+            taskbarSpaceUnavailable = false;
             IntPtr taskbarHandle = NativeMethods.GetPrimaryTaskbarHandle();
             Rectangle taskbar = NativeMethods.GetPrimaryTaskbarBounds();
             Rectangle screen = Screen.PrimaryScreen.Bounds;
@@ -949,6 +1052,12 @@ namespace TaskbarMonitor
             {
                 AttachToTaskbar(taskbarHandle);
                 TaskbarFreeSlot freeSlot = TaskbarLayoutProbe.GetFreeSlot(taskbarHandle, taskbar, settings.TaskbarOffset);
+                if (freeSlot.Right - freeSlot.Left < 48)
+                {
+                    taskbarSpaceUnavailable = true;
+                    if (Visible) Hide();
+                    return;
+                }
                 x = freeSlot.Left;
                 height = Math.Max(20, Math.Min(settings.InsideHeight, taskbar.Height - 6));
                 int rightLimit = Math.Min(freeSlot.Right, taskbar.Width - 8);
@@ -997,12 +1106,21 @@ namespace TaskbarMonitor
         public void MaintainTaskbarLayer()
         {
             if (!Visible || hiddenForShellFlyout) return;
-            if (String.Equals(host.Settings.PositionMode, "Inside", StringComparison.OrdinalIgnoreCase))
-                PositionWidget();
+            if ((DateTime.UtcNow - lastLayerMaintenance).TotalSeconds < 1.0) return;
+            lastLayerMaintenance = DateTime.UtcNow;
             if (!embedded) return;
             NativeMethods.SetWindowPos(Handle, NativeMethods.HWND_TOPMOST, 0, 0, 0, 0,
                 NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE |
                 NativeMethods.SWP_SHOWWINDOW);
+        }
+
+        public void RefreshTaskbarPlacement()
+        {
+            if ((DateTime.UtcNow - lastPlacementRefresh).TotalMilliseconds <
+                (TaskbarLayoutProbe.IsSettling ? 100 : 1000)) return;
+            lastPlacementRefresh = DateTime.UtcNow;
+            if (String.Equals(host.Settings.PositionMode, "Inside", StringComparison.OrdinalIgnoreCase))
+                PositionWidget();
         }
 
         private void UpdateClickThrough()
@@ -1028,15 +1146,14 @@ namespace TaskbarMonitor
 
         internal static bool ShouldHideForEnvironment(bool settingsOpen, bool environmentActive, bool hideModeEnabled)
         {
-            // An already-running widget is part of the live settings preview.
-            // Keep it visible while the settings form is open, then resume the
-            // selected fullscreen and shell-flyout behavior after it closes.
-            return !settingsOpen && environmentActive && hideModeEnabled;
+            // Settings are not permission to cover Start/Search or fullscreen apps.
+            return environmentActive && hideModeEnabled;
         }
 
         private void ApplyAutomaticVisibility(bool monitoring)
         {
-            bool shouldShow = monitoring && !hiddenByUser && !hiddenForFullscreen && !hiddenForShellFlyout;
+            bool shouldShow = monitoring && !hiddenByUser && !hiddenForFullscreen && !hiddenForShellFlyout &&
+                !taskbarSpaceUnavailable;
             if (shouldShow && !Visible)
             {
                 Show();
@@ -1084,6 +1201,8 @@ namespace TaskbarMonitor
 
         public void SetSettingsOpen(bool open)
         {
+            if (settingsOpen == open) return;
+            TaskbarLayoutProbe.NotifyLayoutChanged();
             settingsOpen = open;
             ApplyFloatingWindowOrder(false);
         }

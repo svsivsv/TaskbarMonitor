@@ -136,7 +136,8 @@ namespace TaskbarMonitor
 
         public void Configure(int historySeconds, int intervalMs)
         {
-            maximumSamples = Math.Max(10, Math.Min(2400, (int)Math.Ceiling(historySeconds * 1000.0 / Math.Max(200, intervalMs))));
+            maximumSamples = Math.Max(1, Math.Min(3000, (int)Math.Ceiling(
+                Math.Max(10, Math.Min(600, historySeconds)) * 1000.0 / Math.Max(200, intervalMs))));
             Trim();
         }
 
@@ -206,6 +207,32 @@ namespace TaskbarMonitor
         }
     }
 
+    internal sealed class TemperatureCache
+    {
+        internal const int RetentionSeconds = 10;
+        private double? value;
+        private long lastSuccess;
+
+        public void Clear() { value = null; lastSuccess = 0; }
+
+        public void Update(double? current, long now)
+        {
+            if (current.HasValue && !Double.IsNaN(current.Value) &&
+                !Double.IsInfinity(current.Value) && current.Value >= -20 && current.Value <= 150)
+            {
+                value = current;
+                lastSuccess = now;
+            }
+        }
+
+        public double? Read(long now)
+        {
+            if (value.HasValue && (now - lastSuccess) / (double)Stopwatch.Frequency >= RetentionSeconds)
+                Clear();
+            return value;
+        }
+    }
+
     public sealed class MetricSampler : IDisposable
     {
         private ulong previousIdle;
@@ -224,8 +251,8 @@ namespace TaskbarMonitor
         private PdhWildcardCounter cpuTemperatureCounter;
         private NvmlTemperatureReader gpuTemperatureReader;
         private long lastTemperatureSampleTimestamp;
-        private double? cachedCpuTemperature;
-        private double? cachedGpuTemperature;
+        private readonly TemperatureCache cachedCpuTemperature = new TemperatureCache();
+        private readonly TemperatureCache cachedGpuTemperature = new TemperatureCache();
 
         public MetricSampler()
         {
@@ -259,12 +286,12 @@ namespace TaskbarMonitor
             if (!cpuEnabled)
             {
                 ReleaseCpuTemperatureCounter();
-                cachedCpuTemperature = null;
+                cachedCpuTemperature.Clear();
             }
             if (!gpuEnabled)
             {
                 ReleaseGpuTemperatureReader();
-                cachedGpuTemperature = null;
+                cachedGpuTemperature.Clear();
             }
 
             long now = Stopwatch.GetTimestamp();
@@ -275,22 +302,17 @@ namespace TaskbarMonitor
                 if (cpuEnabled)
                 {
                     double? cpuTemperature = ReadCpuTemperature();
-                    cachedCpuTemperature = PreserveLastTemperature(cachedCpuTemperature, cpuTemperature);
+                    cachedCpuTemperature.Update(cpuTemperature, now);
                 }
                 if (gpuEnabled)
                 {
                     double? gpuTemperature = ReadGpuTemperature();
-                    cachedGpuTemperature = PreserveLastTemperature(cachedGpuTemperature, gpuTemperature);
+                    cachedGpuTemperature.Update(gpuTemperature, now);
                 }
                 lastTemperatureSampleTimestamp = now;
             }
-            result.CpuTemperatureC = cachedCpuTemperature;
-            result.GpuTemperatureC = cachedGpuTemperature;
-        }
-
-        internal static double? PreserveLastTemperature(double? previous, double? current)
-        {
-            return current.HasValue ? current : previous;
+            result.CpuTemperatureC = cachedCpuTemperature.Read(now);
+            result.GpuTemperatureC = cachedGpuTemperature.Read(now);
         }
 
         private double? ReadCpuTemperature()
@@ -309,7 +331,11 @@ namespace TaskbarMonitor
                 }
             }
             double? raw = cpuTemperatureCounter.ReadMaximumRaw();
-            if (!raw.HasValue) return null;
+            if (!raw.HasValue)
+            {
+                ReleaseCpuTemperatureCounter();
+                return null;
+            }
             double celsius = raw.Value > 200.0 ? raw.Value / 10.0 - 273.15 : raw.Value;
             return celsius >= -20.0 && celsius <= 150.0 ? (double?)celsius : null;
         }
@@ -523,7 +549,7 @@ namespace TaskbarMonitor
             try
             {
                 uint count;
-                if (NvmlNative.nvmlDeviceGetCount_v2(out count) != 0 || count == 0) return null;
+                if (NvmlNative.nvmlDeviceGetCount_v2(out count) != 0 || count == 0) return RetryLater();
                 uint maximum = 0;
                 bool found = false;
                 for (uint index = 0; index < count; index++)
@@ -536,12 +562,19 @@ namespace TaskbarMonitor
                     maximum = Math.Max(maximum, temperature);
                     found = true;
                 }
-                return found ? (double?)maximum : null;
+                return found ? (double?)maximum : RetryLater();
             }
             catch
             {
-                return null;
+                return RetryLater();
             }
+        }
+
+        private double? RetryLater()
+        {
+            Dispose();
+            lastInitializationAttemptTimestamp = Stopwatch.GetTimestamp();
+            return null;
         }
 
         private bool EnsureInitialized()

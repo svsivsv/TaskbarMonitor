@@ -261,7 +261,8 @@ namespace TaskbarMonitor
             helpText.TextAlign = ContentAlignment.MiddleLeft;
             helpText.Text =
                 "권장값은 갱신 1000ms, 그래프 기록 60초입니다. 갱신 값을 낮추면 더 빠르게 반응하지만 CPU 사용량이 늘 수 있습니다.\r\n" +
-                "온도는 이름과 사용률 사이에 표시합니다. GPU는 NVIDIA 센서, CPU는 Windows ACPI 센서가 제공될 때 표시하며 없으면 생략합니다.\r\n" +
+                "온도는 이름과 사용률 사이에 표시합니다. CPU는 ACPI 참고값으로 실제 CPU 패키지 온도와 다를 수 있습니다.\r\n" +
+                "GPU는 NVIDIA 센서를 사용합니다. 센서 응답이 10초 이상 없으면 온도를 숨기고 다시 연결합니다.\r\n" +
                 "세 표시 모드는 설정과 우클릭 메뉴에서 언제든 바로 전환할 수 있습니다. 별도 상세 그래프 창은 열지 않습니다.\r\n" +
                 "숨김 중 측정의 기본값은 '완전히 중지'입니다. 5초 간격과 계속 측정은 숨겨진 동안에도 기록이 필요한 경우에만 선택하세요.";
             helpGroup.Controls.Add(helpText);
@@ -341,7 +342,7 @@ namespace TaskbarMonitor
             DataGridViewCheckBoxColumn temperature = new DataGridViewCheckBoxColumn();
             temperature.Name = "Temperature";
             temperature.HeaderText = "온도";
-            temperature.ToolTipText = "CPU/GPU 온도를 이름과 사용률 사이에 표시합니다. 센서값을 읽을 수 없으면 자동으로 생략합니다.";
+            temperature.ToolTipText = "이름과 사용률 사이에 온도를 표시합니다. CPU는 ACPI Thermal Zone 참고값이며 실제 CPU 패키지 온도와 다를 수 있습니다. GPU는 NVIDIA 센서입니다. 마지막 정상 값은 최대 10초만 유지합니다.";
             temperature.FillWeight = 48;
             grid.Columns.Add(temperature);
 
@@ -626,15 +627,15 @@ namespace TaskbarMonitor
         {
             lastSnapshot = snapshot;
             lastHistory = history;
-            // Do not repaint the live graph while the user is manipulating this
-            // form. Control-triggered RefreshPreview calls still apply instantly.
-            if (dropDownOpen || ContainsFocus || metricGrid.IsCurrentCellInEditMode) return;
-            bool inside = working.PositionMode == "Inside";
-            bool seamless = inside && String.Equals(working.InsideStyle, "Seamless", StringComparison.OrdinalIgnoreCase);
-            preview.SetIntegratedStyle(inside, Color.FromArgb(31, 31, 31), seamless);
-            preview.Configure(working, snapshot, history);
-            preview.Width = GetPreviewWidth(inside);
-            preview.Height = inside ? working.InsideHeight : 48;
+            // Data-only repaint leaves dropdowns, editing cells and focus intact.
+            preview.UpdateReadings(snapshot, history);
+            // The asynchronous taskbar probe can complete after the form opens.
+            // Resize only this child preview, never the form or an editing control.
+            if (!dropDownOpen && !metricGrid.IsCurrentCellInEditMode)
+            {
+                int width = GetPreviewWidth(working.PositionMode == "Inside");
+                if (preview.Width != width) preview.Width = width;
+            }
         }
 
         private int GetPreviewWidth(bool inside)
@@ -649,9 +650,10 @@ namespace TaskbarMonitor
                     Rectangle taskbar = NativeMethods.GetPrimaryTaskbarBounds();
                     TaskbarFreeSlot freeSlot = TaskbarLayoutProbe.GetFreeSlot(taskbarHandle, taskbar, working.TaskbarOffset);
                     int rightLimit = Math.Min(freeSlot.Right, taskbar.Width - 8);
-                    int availableWidth = Math.Max(1, rightLimit - freeSlot.Left);
-                    preferredWidth = WidgetForm.CalculateInsideWidgetWidth(true, working.MaxWidth,
-                        preferredWidth, availableWidth);
+                    int availableWidth = Math.Max(0, rightLimit - freeSlot.Left);
+                    if (availableWidth >= 48)
+                        preferredWidth = WidgetForm.CalculateInsideWidgetWidth(true, working.MaxWidth,
+                            preferredWidth, availableWidth);
                 }
                 catch
                 {

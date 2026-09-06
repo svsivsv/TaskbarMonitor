@@ -38,6 +38,7 @@ if (Test-Path -LiteralPath $legacyAppDirectory -PathType Container) {
 }
 $outputPath = Join-Path $outputDirectory 'TaskbarMonitor.exe'
 $manifestPath = Join-Path $projectRoot 'app.manifest'
+$licensePath = Join-Path $projectRoot 'LICENSE'
 $sourceFiles = Get-ChildItem -LiteralPath $projectRoot -Filter '*.cs' | ForEach-Object { $_.FullName }
 $gacRoot = 'C:\Windows\Microsoft.NET\assembly\GAC_MSIL'
 $uiAutomationClient = Join-Path $gacRoot 'UIAutomationClient\v4.0_4.0.0.0__31bf3856ad364e35\UIAutomationClient.dll'
@@ -48,6 +49,7 @@ $compilerOptions = @(
     '/target:winexe',
     '/platform:x64',
     "/win32manifest:$manifestPath",
+    "/resource:$licensePath,TaskbarMonitor.LICENSE.txt",
     "/out:$outputPath",
     '/reference:System.dll',
     '/reference:System.Core.dll',

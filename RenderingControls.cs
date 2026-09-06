@@ -111,6 +111,7 @@ namespace TaskbarMonitor
         internal int DiagnosticPageCount { get { return pageCount; } }
         internal int DiagnosticFirstVisibleIndex { get { return firstVisibleIndex; } }
         internal int DiagnosticVisibleItemCount { get { return visibleItemCount; } }
+        internal double DiagnosticCpuPercent { get { return snapshot.CpuPercent; } }
 
         public MetricBarControl()
         {
@@ -137,6 +138,14 @@ namespace TaskbarMonitor
             int count = DisplayMetricBuilder.Build(settings).Count;
             if (integratedStyle) return Math.Max(120, Math.Min(settings.MaxWidth, 4 + count * settings.InsideItemWidth));
             return Math.Max(160, Math.Min(settings.MaxWidth, 22 + count * 96));
+        }
+
+        public void UpdateReadings(MetricSnapshot newSnapshot, MetricHistory newHistory)
+        {
+            // Painting data must never reposition, activate or recreate a window.
+            snapshot = newSnapshot ?? snapshot;
+            history = newHistory ?? history;
+            Invalidate();
         }
 
         public void SetIntegratedStyle(bool enabled, Color backgroundKey)
@@ -220,7 +229,13 @@ namespace TaskbarMonitor
                     int width = visibleIndex == shown - 1 && (overflow || settings.AutoFit) ? rightLimit - x : itemWidths[visibleIndex];
                     if (x >= rightLimit) break;
                     Rectangle bounds = new Rectangle(x, 1, Math.Max(1, Math.Min(width, rightLimit - x)), Math.Max(1, Height - 2));
-                    DrawMetric(graphics, bounds, metrics[first + visibleIndex], labelFont, valueFont, foreground, border);
+                    GraphicsState tileState = graphics.Save();
+                    try
+                    {
+                        graphics.SetClip(bounds, CombineMode.Intersect);
+                        DrawMetric(graphics, bounds, metrics[first + visibleIndex], labelFont, valueFont, foreground, border);
+                    }
+                    finally { graphics.Restore(tileState); }
                     x += width;
                 }
             }
@@ -300,7 +315,6 @@ namespace TaskbarMonitor
             int padding = integratedStyle ? (integratedSeamless ? 2 : 3) : (bounds.Width < 60 ? 2 : 6);
             Rectangle inner = new Rectangle(bounds.Left + padding, bounds.Top + 1, Math.Max(1, bounds.Width - padding * 2), Math.Max(1, bounds.Height - 2));
             bool veryNarrow = bounds.Width < 62;
-            bool compact = bounds.Width < 92;
             string value = option.ShowValue ? snapshot.FormatValue(option, true, item.DiskName) : String.Empty;
             string temperature = snapshot.FormatTemperature(option);
             int graphThreshold = integratedStyle ? 20 : 25;
@@ -311,40 +325,19 @@ namespace TaskbarMonitor
                 new Size(Int32.MaxValue, textHeight), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
             int measuredTemperatureWidth = String.IsNullOrEmpty(temperature) ? 0 : TextRenderer.MeasureText(graphics, temperature, valueFont,
                 new Size(Int32.MaxValue, textHeight), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
-            // Numeric readings keep their space even when a custom name is long.
-            int valueWidth = Math.Min(measuredValueWidth, inner.Width);
-            int labelBudget = Math.Min(measuredLabelWidth, 26);
-            int temperatureGap = valueWidth > 0 ? 5 : 0;
-            int nameGap = 2;
-            int availableTemperature = Math.Max(0, inner.Width - valueWidth -
-                temperatureGap - nameGap - labelBudget);
-            if (measuredTemperatureWidth > availableTemperature)
-            {
-                temperature = snapshot.FormatCompactTemperature(option);
-                measuredTemperatureWidth = String.IsNullOrEmpty(temperature) ? 0 :
-                    TextRenderer.MeasureText(graphics, temperature, valueFont,
-                        new Size(Int32.MaxValue, textHeight),
-                        TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
-            }
-            if (measuredTemperatureWidth > availableTemperature)
-            {
-                temperature = String.Empty;
-                measuredTemperatureWidth = 0;
-            }
-            int temperatureWidth = measuredTemperatureWidth;
-            int valueLeft = inner.Right - valueWidth;
-            int temperatureLeft = valueLeft - (temperatureWidth > 0 ? temperatureGap : 0) - temperatureWidth;
-            int labelRight = (temperatureWidth > 0 ? temperatureLeft : valueLeft) -
-                (temperatureWidth > 0 || valueWidth > 0 ? nameGap : 0);
-            Rectangle labelRect = new Rectangle(inner.Left, inner.Top,
-                Math.Max(0, labelRight - inner.Left), textHeight);
-            Rectangle temperatureRect = new Rectangle(temperatureLeft, inner.Top, temperatureWidth, textHeight);
-            Rectangle valueRect = new Rectangle(valueLeft, inner.Top, valueWidth, textHeight);
-            DrawBoundedText(graphics, item.Label, labelFont, labelRect, option.Color, false);
+            string compactTemperature = snapshot.FormatCompactTemperature(option);
+            int compactTemperatureWidth = String.IsNullOrEmpty(compactTemperature) ? 0 :
+                TextRenderer.MeasureText(graphics, compactTemperature, valueFont,
+                    new Size(Int32.MaxValue, textHeight), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
+            MetricTextLayout layout = CalculateTextLayout(new Rectangle(inner.Left, inner.Top, inner.Width, textHeight),
+                measuredLabelWidth, measuredValueWidth, measuredTemperatureWidth, compactTemperatureWidth);
+            if (layout.TemperatureFormat == 2) temperature = compactTemperature;
+            int temperatureWidth = layout.Temperature.Width;
+            DrawBoundedText(graphics, item.Label, labelFont, layout.Label, option.Color, false);
             if (temperatureWidth > 0)
-                DrawBoundedText(graphics, temperature, valueFont, temperatureRect, option.TemperatureColor, false);
+                DrawBoundedText(graphics, temperature, valueFont, layout.Temperature, option.TemperatureColor, false);
             if (option.ShowValue)
-                DrawBoundedText(graphics, value, valueFont, valueRect, foreground, true);
+                DrawBoundedText(graphics, value, valueFont, layout.Value, foreground, true);
 
             if (option.ShowGraph && inner.Height >= graphThreshold && (!veryNarrow || settings.AutoFit))
             {
@@ -353,15 +346,9 @@ namespace TaskbarMonitor
                 GraphRenderer.Draw(graphics, graphRect, values, option,
                     seamlessVisual ? Color.Transparent : Color.FromArgb(28, foreground));
             }
-            else if (!option.ShowValue && temperatureWidth == 0 && compact)
-            {
-                Rectangle centered = new Rectangle(inner.Left, inner.Top, inner.Width, inner.Height);
-                TextRenderer.DrawText(graphics, item.Label, valueFont, centered, option.Color,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
-            }
         }
 
-        private static void DrawBoundedText(Graphics graphics, string text, Font font,
+        internal static void DrawBoundedText(Graphics graphics, string text, Font font,
             Rectangle bounds, Color color, bool alignRight)
         {
             if (bounds.Width <= 0 || bounds.Height <= 0) return;
@@ -378,27 +365,31 @@ namespace TaskbarMonitor
             finally { graphics.Restore(state); }
         }
 
-        internal static bool CanKeepTemperatureUnscaled(int requiredWidth, int availableWidth)
+        internal struct MetricTextLayout
         {
-            return requiredWidth <= availableWidth + 8;
+            public Rectangle Label;
+            public Rectangle Temperature;
+            public Rectangle Value;
+            public int TemperatureFormat;
         }
 
-        internal static string ChooseTemperatureText(string fullText, int fullWidth, string compactText,
-            int compactWidth, int otherTextWidth, int availableWidth)
+        internal static MetricTextLayout CalculateTextLayout(Rectangle inner, int labelWidth,
+            int measuredValueWidth, int fullTemperatureWidth, int compactTemperatureWidth)
         {
-            if (String.IsNullOrEmpty(fullText)) return String.Empty;
-            if (CanKeepTemperatureUnscaled(otherTextWidth + fullWidth, availableWidth)) return fullText;
-            if (!String.IsNullOrEmpty(compactText) &&
-                CanKeepTemperatureUnscaled(otherTextWidth + compactWidth, availableWidth)) return compactText;
-            return String.Empty;
-        }
-
-        private static void DrawTemperatureText(Graphics graphics, string text, Font font, Rectangle bounds, Color color)
-        {
-            TextFormatFlags flags = TextFormatFlags.Left | TextFormatFlags.VerticalCenter |
-                TextFormatFlags.SingleLine | TextFormatFlags.NoPadding;
-            if (bounds.Width <= 0 || bounds.Height <= 0) return;
-            TextRenderer.DrawText(graphics, text, font, bounds, color, flags);
+            int valueWidth = Math.Min(Math.Max(0, measuredValueWidth), inner.Width);
+            int temperatureGap = valueWidth > 0 ? 5 : 0;
+            int available = Math.Max(0, inner.Width - valueWidth - temperatureGap - 2 - Math.Min(labelWidth, 26));
+            int format = fullTemperatureWidth > 0 && fullTemperatureWidth <= available ? 1 :
+                (compactTemperatureWidth > 0 && compactTemperatureWidth <= available ? 2 : 0);
+            int temperatureWidth = format == 1 ? fullTemperatureWidth : (format == 2 ? compactTemperatureWidth : 0);
+            int valueLeft = inner.Right - valueWidth;
+            int temperatureLeft = valueLeft - (temperatureWidth > 0 ? temperatureGap : 0) - temperatureWidth;
+            int labelRight = (temperatureWidth > 0 ? temperatureLeft : valueLeft) -
+                (temperatureWidth > 0 || valueWidth > 0 ? 2 : 0);
+            return new MetricTextLayout {
+                Label = new Rectangle(inner.Left, inner.Top, Math.Max(0, labelRight - inner.Left), inner.Height),
+                Temperature = new Rectangle(temperatureLeft, inner.Top, temperatureWidth, inner.Height),
+                Value = new Rectangle(valueLeft, inner.Top, valueWidth, inner.Height), TemperatureFormat = format };
         }
     }
 
