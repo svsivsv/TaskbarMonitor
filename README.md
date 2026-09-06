@@ -8,7 +8,7 @@ Windows 11 x64 작업 표시줄에 온도 참고값, CPU, 메모리, 디스크, 
 
 **[TaskbarMonitor.exe 다운로드](https://github.com/svsivsv/TaskbarMonitor/raw/refs/heads/main/release/TaskbarMonitor.exe)** · [실행 파일 위치](release/TaskbarMonitor.exe)
 
-위 링크는 이 저장소의 `release/TaskbarMonitor.exe`를 내려받습니다. 로컬 프로젝트와 GitHub에 같은 코드·설명·EXE 구성을 유지합니다. 사용자에게 보이는 이름에는 버전 숫자를 붙이지 않으며, 문제 확인용 내부 버전은 EXE 속성에만 유지합니다. 이전 Releases는 과거 기록이며 최신 파일은 위 링크를 사용하세요.
+위 링크는 이 저장소의 `release/TaskbarMonitor.exe`를 내려받습니다. 로컬 프로젝트와 GitHub에 같은 코드·설명·EXE 구성을 유지합니다. [배포 페이지](https://github.com/svsivsv/TaskbarMonitor/releases/tag/current)도 하나만 운영하며 같은 EXE를 제공합니다. 사용자에게 보이는 이름에는 버전 숫자를 붙이지 않으며, 문제 확인용 내부 버전은 EXE 속성에만 유지합니다.
 
 ## 화면
 
