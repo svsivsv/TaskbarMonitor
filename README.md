@@ -1,5 +1,9 @@
 # Taskbar Monitor
 
+[한국어](README.md) | [English](README.en.md)
+
+현재 프로그램 화면은 한국어입니다. 영문 README는 사용 설명 번역이며, 앱 내부 언어 선택 기능은 아직 제공하지 않습니다.
+
 > **베타 테스트 버전입니다.** 개발 중인 프로그램으로 예상하지 못한 버그, 표시 오류, 호환성 문제가 발생할 수 있습니다. 문제가 생기면 사용 환경과 재현 방법을 [GitHub Issues](https://github.com/svsivsv/TaskbarMonitor/issues)에 남겨 주세요. 스크린샷이나 로그를 첨부할 때는 개인정보를 가려 주세요.
 
 Windows 11 x64 작업 표시줄에 온도 참고값, CPU, 메모리, 디스크, 네트워크, GPU 사용량과 미니 그래프를 표시하는 네이티브 위젯입니다. 현재 베타 단계이며 인텔·AMD 64비트 PC의 기본 가로형 작업표시줄을 기준으로 검증합니다.
@@ -243,7 +247,8 @@ powershell -ExecutionPolicy Bypass -File .\test.ps1
 ├─ test.ps1               자동 회귀 검사
 ├─ .gitignore             임시 파일·개인 기록 업로드 제외 규칙
 ├─ LICENSE                MIT 라이선스
-└─ README.md              공개 설명서
+├─ README.md              한국어 설명서
+└─ README.en.md           영문 설명서
 ```
 
 `src/app.manifest`는 EXE를 빌드할 때 포함되므로 실행할 때 따로 받을 필요가 없습니다. 매번 수정해야 하는 파일도 아닙니다. GitHub workflow는 맨 위의 `test.ps1`을 통해 소스나 EXE가 변경됐을 때 빌드·검사를 자동 실행하며, 사용자 PC에서 위젯을 실행하는 데 필요하지 않습니다. 소스와 검사 파일은 수정·검증할 사람을 위해, `docs`와 README는 사용 설명을 위해 함께 공개합니다. 개인 설정과 `.git` 내부 관리 정보까지 GitHub 파일 목록과 같게 만드는 것은 아닙니다.
