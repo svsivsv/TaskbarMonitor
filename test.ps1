@@ -1,6 +1,11 @@
 ﻿param([switch]$SkipBuild)
 $ErrorActionPreference = 'Stop'
 $testRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+[xml]$manifest = Get-Content -LiteralPath (Join-Path $testRoot 'app.manifest') -Raw
+$supportedIds = @($manifest.SelectNodes("//*[local-name()='supportedOS']") | ForEach-Object { $_.Id })
+if ($supportedIds.Count -ne 1 -or $supportedIds[0] -ne '{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}') { throw '지원 OS 선언이 Windows 10/11 공식 식별자와 다릅니다.' }
+$executionLevel = $manifest.SelectSingleNode("//*[local-name()='requestedExecutionLevel']")
+if ($executionLevel.level -ne 'asInvoker' -or $executionLevel.uiAccess -ne 'false') { throw '실행 권한 선언이 기본 정책과 다릅니다.' }
 if (-not $SkipBuild) { & (Join-Path $testRoot 'build.ps1') }
 $testOutput = Join-Path ([IO.Path]::GetTempPath()) ('TaskbarMonitor-regression-' + [Guid]::NewGuid().ToString('N') + '.json')
 $testExe = Join-Path $testRoot 'release\TaskbarMonitor.exe'
@@ -11,6 +16,6 @@ if (-not $testProcess.WaitForExit(60000)) {
 }
 $testProcess.Refresh()
 $testResult = Get-Content -LiteralPath $testOutput -Raw | ConvertFrom-Json
-$testResult
+$testResult | ConvertTo-Json -Depth 4
 Write-Output "검사 결과: $testOutput"
 if ($testProcess.ExitCode -ne 0 -or -not $testResult.success) { throw '회귀 검사 실패' }

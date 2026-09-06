@@ -48,8 +48,8 @@ namespace TaskbarMonitor
         {
             host = appHost;
             working = settings;
-            lastSnapshot = appHost.Snapshot;
-            lastHistory = appHost.History;
+            lastSnapshot = appHost == null ? new MetricSnapshot() : appHost.Snapshot;
+            lastHistory = appHost == null ? new MetricHistory() : appHost.History;
             Text = "Taskbar Monitor 설정";
             Icon = IconFactory.CreateGraphIcon(Color.FromArgb(0, 183, 195));
             StartPosition = FormStartPosition.CenterScreen;
@@ -695,7 +695,7 @@ namespace TaskbarMonitor
         {
             int containerWidth = Math.Max(1, preview.Parent.ClientSize.Width - 20);
             int preferredWidth = preview.GetPreferredWidth();
-            if (inside && working.AutoFit)
+            if (host != null && inside && working.AutoFit)
             {
                 try
                 {

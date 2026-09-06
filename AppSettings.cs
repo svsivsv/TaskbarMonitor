@@ -84,7 +84,7 @@ namespace TaskbarMonitor
         public string CaptureMode { get; set; }
         public bool AutoFit { get; set; }
         public string HiddenMeasurementMode { get; set; }
-        // Legacy compatibility for settings written by builds before 0.4.14.
+        // Compatibility with the former hidden-measurement checkbox.
         public bool PauseWhenHidden { get; set; }
         public bool StartWithWindows { get; set; }
         public bool ShowSettingsOnManualLaunch { get; set; }
@@ -179,7 +179,7 @@ namespace TaskbarMonitor
             if (SettingsVersion < 2)
             {
                 WidgetInteractionEnabled = true;
-                OverflowPaging = true;
+                OverflowPaging = defaults.OverflowPaging;
                 SettingsVersion = 2;
             }
             if (SettingsVersion < 3)
@@ -215,6 +215,8 @@ namespace TaskbarMonitor
                 SettingsVersion = 6;
             }
             if (Metrics == null) Metrics = new List<MetricOption>();
+            Metrics = Metrics.Where(delegate(MetricOption metric) { return metric != null && Enum.IsDefined(typeof(MetricKind), metric.Kind); })
+                .GroupBy(delegate(MetricOption metric) { return metric.Kind; }).Select(delegate(IGrouping<MetricKind, MetricOption> group) { return group.First(); }).ToList();
             foreach (MetricOption defaultMetric in defaults.Metrics)
             {
                 MetricOption existing = Metrics.FirstOrDefault(delegate(MetricOption m) { return m.Kind == defaultMetric.Kind; });
@@ -230,10 +232,10 @@ namespace TaskbarMonitor
             }
             if (addTemperatureDefaults) SettingsVersion = 7;
             if (addTemperatureColorDefaults) SettingsVersion = 8;
-            if (UpdateIntervalMs < 200) UpdateIntervalMs = defaults.UpdateIntervalMs;
-            if (HistorySeconds < 10) HistorySeconds = defaults.HistorySeconds;
-            if (MaxWidth < 160) MaxWidth = defaults.MaxWidth;
-            if (TaskbarOffset < 0) TaskbarOffset = defaults.TaskbarOffset;
+            if (UpdateIntervalMs < 200 || UpdateIntervalMs > 10000) UpdateIntervalMs = defaults.UpdateIntervalMs;
+            if (HistorySeconds < 10 || HistorySeconds > 600) HistorySeconds = defaults.HistorySeconds;
+            if (MaxWidth < 160 || MaxWidth > 1200) MaxWidth = defaults.MaxWidth;
+            if (TaskbarOffset < 0 || TaskbarOffset > 1200) TaskbarOffset = defaults.TaskbarOffset;
             if (InsideItemWidth < 48 || InsideItemWidth > 180) InsideItemWidth = defaults.InsideItemWidth;
             if (InsideHeight < 20 || InsideHeight > 48) InsideHeight = defaults.InsideHeight;
             if (PopupWidth < 200 || PopupWidth > 1200) PopupWidth = defaults.PopupWidth;
@@ -242,12 +244,12 @@ namespace TaskbarMonitor
                 !String.Equals(FloatingZOrder, "Top", StringComparison.OrdinalIgnoreCase) &&
                 !String.Equals(FloatingZOrder, "Bottom", StringComparison.OrdinalIgnoreCase))
                 FloatingZOrder = defaults.FloatingZOrder;
-            if (String.IsNullOrEmpty(InsideStyle)) InsideStyle = defaults.InsideStyle;
+            InsideStyle = NormalizeChoice(InsideStyle, defaults.InsideStyle, "Seamless", "Panel");
             if (OpacityPercent < 25 || OpacityPercent > 100) OpacityPercent = defaults.OpacityPercent;
             if (Single.IsNaN(FontSize) || Single.IsInfinity(FontSize) || FontSize < 7.0f || FontSize > 18.0f) FontSize = defaults.FontSize;
-            if (String.IsNullOrEmpty(PositionMode)) PositionMode = defaults.PositionMode;
-            if (String.IsNullOrEmpty(FullscreenMode)) FullscreenMode = defaults.FullscreenMode;
-            if (String.IsNullOrEmpty(CaptureMode)) CaptureMode = defaults.CaptureMode;
+            PositionMode = NormalizeChoice(PositionMode, defaults.PositionMode, "Inside", "Above", "Popup");
+            FullscreenMode = NormalizeChoice(FullscreenMode, defaults.FullscreenMode, "Hide", "Show", "ClickThrough");
+            CaptureMode = NormalizeChoice(CaptureMode, defaults.CaptureMode, "Show", "Hide");
             if (!String.Equals(HiddenMeasurementMode, "Stop", StringComparison.OrdinalIgnoreCase) &&
                 !String.Equals(HiddenMeasurementMode, "Throttle", StringComparison.OrdinalIgnoreCase) &&
                 !String.Equals(HiddenMeasurementMode, "Continue", StringComparison.OrdinalIgnoreCase))
@@ -270,6 +272,11 @@ namespace TaskbarMonitor
             copy.Metrics = Metrics.Select(delegate(MetricOption m) { return m.Clone(); }).ToList();
             copy.SelectedDisks = new List<string>(SelectedDisks ?? new List<string>());
             return copy;
+        }
+
+        private static string NormalizeChoice(string value, string fallback, params string[] choices)
+        {
+            return choices.FirstOrDefault(delegate(string choice) { return String.Equals(choice, value, StringComparison.OrdinalIgnoreCase); }) ?? fallback;
         }
 
         public static List<string> GetAvailableDiskNames()

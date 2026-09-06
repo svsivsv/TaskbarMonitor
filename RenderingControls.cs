@@ -296,7 +296,7 @@ namespace TaskbarMonitor
 
         public bool TryNavigate(Point location)
         {
-            if (pageCount <= 1) return false;
+            if (!settings.WidgetInteractionEnabled || pageCount <= 1) return false;
             if (previousPageBounds.Contains(location))
             {
                 pageIndex = (pageIndex - 1 + pageCount) % pageCount;

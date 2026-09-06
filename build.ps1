@@ -2,6 +2,7 @@
     [switch]$DebugBuild
 )
 
+$ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $releaseDirectory = Join-Path $projectRoot 'release'
 $outputDirectory = $releaseDirectory
@@ -22,21 +23,13 @@ if (-not $resolvedReleaseDirectory.StartsWith($resolvedProjectRoot + '\', [Strin
 }
 
 New-Item -ItemType Directory -Path $releaseDirectory -Force | Out-Null
-foreach ($legacyName in @('TaskbarMonitor.pdb', 'README.md', 'TaskbarMonitor.zip')) {
-    $legacyPath = Join-Path $releaseDirectory $legacyName
-    if (Test-Path -LiteralPath $legacyPath) {
-        Remove-Item -LiteralPath $legacyPath -Force -ErrorAction Stop
-    }
+$finalOutputPath = Join-Path $outputDirectory 'TaskbarMonitor.exe'
+$runningOutput = Get-Process -Name TaskbarMonitor -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $finalOutputPath }
+if ($runningOutput) {
+    throw '이 EXE가 실행 중입니다. 트레이 메뉴에서 종료한 뒤 다시 빌드하세요. 기존 EXE와 설정은 변경하지 않았습니다.'
 }
-$legacyAppDirectory = Join-Path $releaseDirectory 'app'
-if (Test-Path -LiteralPath $legacyAppDirectory -PathType Container) {
-    $resolvedLegacyAppDirectory = [IO.Path]::GetFullPath($legacyAppDirectory).TrimEnd('\')
-    if (-not $resolvedLegacyAppDirectory.StartsWith($resolvedReleaseDirectory + '\', [StringComparison]::OrdinalIgnoreCase)) {
-        throw "이전 빌드 폴더 경로 검증에 실패했습니다: $resolvedLegacyAppDirectory"
-    }
-    Remove-Item -LiteralPath $resolvedLegacyAppDirectory -Recurse -Force -ErrorAction Stop
-}
-$outputPath = Join-Path $outputDirectory 'TaskbarMonitor.exe'
+$buildDirectory = Join-Path $releaseDirectory ('.build-' + [Guid]::NewGuid().ToString('N'))
+$outputPath = Join-Path $buildDirectory 'TaskbarMonitor.exe'
 $manifestPath = Join-Path $projectRoot 'app.manifest'
 $licensePath = Join-Path $projectRoot 'LICENSE'
 $sourceFiles = Get-ChildItem -LiteralPath $projectRoot -Filter '*.cs' | ForEach-Object { $_.FullName }
@@ -67,13 +60,29 @@ if ($DebugBuild) {
     $compilerOptions += @('/debug-', '/optimize+')
 }
 
-& $compilerPath @compilerOptions @sourceFiles
-if ($LASTEXITCODE -ne 0) {
-    throw "컴파일에 실패했습니다. 종료 코드: $LASTEXITCODE"
+New-Item -ItemType Directory -Path $buildDirectory | Out-Null
+try {
+    & $compilerPath @compilerOptions @sourceFiles
+    if ($LASTEXITCODE -ne 0) {
+        throw "컴파일에 실패했습니다. 기존 EXE는 유지됩니다. 종료 코드: $LASTEXITCODE"
+    }
+    if (Test-Path -LiteralPath $finalOutputPath) {
+        [IO.File]::Replace($outputPath, $finalOutputPath, [NullString]::Value)
+    } else {
+        [IO.File]::Move($outputPath, $finalOutputPath)
+    }
+} finally {
+    $resolvedBuildDirectory = [IO.Path]::GetFullPath($buildDirectory).TrimEnd('\')
+    if (-not $resolvedBuildDirectory.StartsWith($resolvedReleaseDirectory + '\.build-', [StringComparison]::OrdinalIgnoreCase)) {
+        throw "임시 빌드 경로 검증에 실패했습니다: $resolvedBuildDirectory"
+    }
+    if (Test-Path -LiteralPath $resolvedBuildDirectory) {
+        Remove-Item -LiteralPath $resolvedBuildDirectory -Recurse -Force
+    }
 }
 
-$builtFile = Get-Item -LiteralPath $outputPath
-$hash = Get-FileHash -LiteralPath $outputPath -Algorithm SHA256
+$builtFile = Get-Item -LiteralPath $finalOutputPath
+$hash = Get-FileHash -LiteralPath $finalOutputPath -Algorithm SHA256
 [pscustomobject]@{
     File = $builtFile.FullName
     SizeBytes = $builtFile.Length

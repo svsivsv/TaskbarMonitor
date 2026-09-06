@@ -28,6 +28,14 @@ namespace TaskbarMonitor
                 result["unreadableSettingsPreserved"] = ValidateSettingsRecovery();
                 result["taskbarDoesNotInventSpace"] = ValidateSlots();
                 result["startupSlotSettlesBeforeDisplay"] = ValidateSlotStabilization();
+                result["requestedDefaults"] = ValidateRequestedDefaults();
+                result["invalidSettingsNormalized"] = ValidateInvalidSettings();
+                result["hiddenMeasurementModes"] = ValidateHiddenMeasurementModes();
+                result["interactionGate"] = WidgetForm.ShouldAcceptWidgetInput(true, false) &&
+                    !WidgetForm.ShouldAcceptWidgetInput(false, false) && !WidgetForm.ShouldAcceptWidgetInput(true, true);
+                result["pagingAndDisabledInput"] = ValidatePaging();
+                result["popupResizeLimits"] = ValidatePopupResize();
+                result["settingsFooterFitsMinimumWidth"] = ValidateSettingsFooter();
                 result["settingsDoNotOverrideShellVisibility"] =
                     WidgetForm.ShouldHideForEnvironment(true, true, true) &&
                     WidgetForm.ShouldHideForEnvironment(false, true, true) &&
@@ -277,6 +285,92 @@ namespace TaskbarMonitor
                         if (bitmap.GetPixel(x, y).ToArgb() != Color.Black.ToArgb()) return false;
                 return true;
             }
+        }
+
+        private static bool ValidateRequestedDefaults()
+        {
+            AppSettings settings = AppSettings.CreateDefault();
+            return settings.PositionMode == "Inside" && settings.HiddenMeasurementMode == "Stop" &&
+                !settings.OverflowPaging && !settings.PopupPinned && settings.FloatingZOrder == "Normal" &&
+                settings.ShowSettingsOnManualLaunch && settings.UpdateIntervalMs == 1000 && settings.Metrics.Count == 5 &&
+                settings.Metrics.First(m => m.Kind == MetricKind.Cpu).Label == "CPU" &&
+                settings.Metrics.First(m => m.Kind == MetricKind.Gpu).TemperatureColorArgb == Color.FromArgb(255, 184, 74).ToArgb();
+        }
+
+        private static bool ValidateInvalidSettings()
+        {
+            AppSettings settings = AppSettings.CreateDefault();
+            settings.Metrics.Add(null);
+            settings.Metrics.Add(settings.Metrics[0].Clone());
+            settings.FontSize = Single.NaN;
+            settings.UpdateIntervalMs = Int32.MaxValue;
+            settings.HistorySeconds = Int32.MaxValue;
+            settings.MaxWidth = Int32.MaxValue;
+            settings.PositionMode = "popup";
+            settings.FullscreenMode = "invalid";
+            settings.EnsureDefaults();
+            return settings.Metrics.Count == 5 && settings.FontSize == 9 && settings.UpdateIntervalMs == 1000 &&
+                settings.HistorySeconds == 60 && settings.MaxWidth == 560 && settings.PositionMode == "Popup" && settings.FullscreenMode == "Hide";
+        }
+
+        private static bool ValidateHiddenMeasurementModes()
+        {
+            DateTime now = new DateTime(2026, 1, 1);
+            return !AppHost.ShouldSampleMetrics(true, "Stop", now.AddSeconds(-10), now) &&
+                !AppHost.ShouldSampleMetrics(true, "Throttle", now.AddSeconds(-4), now) &&
+                AppHost.ShouldSampleMetrics(true, "Throttle", now.AddSeconds(-5), now) &&
+                AppHost.ShouldSampleMetrics(true, "Continue", now, now) && AppHost.ShouldSampleMetrics(false, "Stop", now, now);
+        }
+
+        private static bool ValidatePaging()
+        {
+            AppSettings settings = AppSettings.CreateDefault();
+            settings.OverflowPaging = true;
+            using (MetricBarControl bar = new MetricBarControl())
+            using (Bitmap bitmap = new Bitmap(280, 48))
+            {
+                bar.Size = bitmap.Size;
+                bar.SetIntegratedStyle(true, Color.Black);
+                bar.Configure(settings, new MetricSnapshot(), new MetricHistory());
+                bar.DrawToBitmap(bitmap, bar.ClientRectangle);
+                if (bar.DiagnosticVisibleItemCount != 3 || !bar.TryNavigate(new Point(270, 10))) return false;
+                bar.DrawToBitmap(bitmap, bar.ClientRectangle);
+                if (bar.DiagnosticVisibleItemCount != 3 || bar.DiagnosticFirstVisibleIndex != 2) return false;
+                settings.WidgetInteractionEnabled = false;
+                bar.Configure(settings, new MetricSnapshot(), new MetricHistory());
+                return !bar.TryNavigate(new Point(270, 10));
+            }
+        }
+
+        private static bool ValidatePopupResize()
+        {
+            Rectangle area = new Rectangle(0, 0, 1920, 1040);
+            Rectangle start = new Rectangle(100, 100, 500, 72);
+            return WidgetForm.CalculatePopupResizeSize(start, -10000, -10000, area) == new Size(200, 48) &&
+                WidgetForm.CalculatePopupResizeSize(start, 10000, 10000, area) == new Size(1200, 400) &&
+                WidgetForm.CalculatePopupResizeSize(start, 20, 10, area) == new Size(520, 82);
+        }
+
+        private static bool ValidateSettingsFooter()
+        {
+            using (SettingsForm form = new SettingsForm(null, AppSettings.CreateDefault()))
+            {
+                form.Size = form.MinimumSize;
+                TableLayoutPanel layout = form.Controls.OfType<TableLayoutPanel>().Single();
+                FlowLayoutPanel footer = layout.GetControlFromPosition(0, 2) as FlowLayoutPanel;
+                if (form.AutoScroll || footer == null || footer.WrapContents || footer.Dock != DockStyle.Fill ||
+                    layout.RowStyles[2].SizeType != SizeType.Absolute) return false;
+                int requiredWidth = footer.Padding.Horizontal + 2;
+                foreach (Control child in footer.Controls)
+                    requiredWidth += Math.Max(child.Width, child.GetPreferredSize(Size.Empty).Width) + child.Margin.Horizontal;
+                if (requiredWidth > form.ClientSize.Width) return false;
+                foreach (string text in new string[] { "저장하고 위젯 켜기", "저장·적용", "닫기", "기본 설정 복원" })
+                {
+                    Button button = footer.Controls.OfType<Button>().Single(b => b.Text == text);
+                    if (button.Height + button.Margin.Vertical + footer.Padding.Vertical + 2 > layout.RowStyles[2].Height) return false;
+                }
+            }
+            return true;
         }
     }
 }
