@@ -1,7 +1,11 @@
 ﻿param([switch]$SkipBuild)
 $ErrorActionPreference = 'Stop'
 $testRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-[xml]$manifest = Get-Content -LiteralPath (Join-Path $testRoot 'app.manifest') -Raw
+foreach ($requiredFile in @('src\Program.cs', 'src\app.manifest', 'tests\RegressionTests.cs', 'LICENSE')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $testRoot $requiredFile) -PathType Leaf)) { throw "필수 프로젝트 파일이 없습니다: $requiredFile" }
+}
+if (@(Get-ChildItem -LiteralPath $testRoot -Filter '*.cs' -File).Count -ne 0) { throw '원본 코드는 src 또는 tests 폴더에 넣어 주세요.' }
+[xml]$manifest = Get-Content -LiteralPath (Join-Path $testRoot 'src\app.manifest') -Raw
 $supportedIds = @($manifest.SelectNodes("//*[local-name()='supportedOS']") | ForEach-Object { $_.Id })
 if ($supportedIds.Count -ne 1 -or $supportedIds[0] -ne '{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}') { throw '지원 OS 선언이 Windows 10/11 공식 식별자와 다릅니다.' }
 $executionLevel = $manifest.SelectSingleNode("//*[local-name()='requestedExecutionLevel']")

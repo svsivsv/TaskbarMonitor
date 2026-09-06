@@ -30,9 +30,12 @@ if ($runningOutput) {
 }
 $buildDirectory = Join-Path $releaseDirectory ('.build-' + [Guid]::NewGuid().ToString('N'))
 $outputPath = Join-Path $buildDirectory 'TaskbarMonitor.exe'
-$manifestPath = Join-Path $projectRoot 'app.manifest'
+$manifestPath = Join-Path $projectRoot 'src\app.manifest'
 $licensePath = Join-Path $projectRoot 'LICENSE'
-$sourceFiles = Get-ChildItem -LiteralPath $projectRoot -Filter '*.cs' | ForEach-Object { $_.FullName }
+$sourceFiles = @(
+    Get-ChildItem -LiteralPath (Join-Path $projectRoot 'src') -Filter '*.cs' -File
+    Get-ChildItem -LiteralPath (Join-Path $projectRoot 'tests') -Filter '*.cs' -File
+) | Sort-Object FullName | ForEach-Object { $_.FullName }
 $gacRoot = 'C:\Windows\Microsoft.NET\assembly\GAC_MSIL'
 $uiAutomationClient = Join-Path $gacRoot 'UIAutomationClient\v4.0_4.0.0.0__31bf3856ad364e35\UIAutomationClient.dll'
 $uiAutomationTypes = Join-Path $gacRoot 'UIAutomationTypes\v4.0_4.0.0.0__31bf3856ad364e35\UIAutomationTypes.dll'

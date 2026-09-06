@@ -152,6 +152,8 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 
 빌드가 끝나면 `release\TaskbarMonitor.exe` 하나만 생성됩니다. 사용자는 이 문서 상단의 **TaskbarMonitor.exe 다운로드** 링크로 EXE 하나를 받아 실행하면 됩니다. JSON·PNG·PDB 같은 검사 파일은 배포 폴더에 포함되지 않습니다. Windows에 포함된 .NET Framework C# 컴파일러를 사용하므로 별도 Python 또는 .NET SDK는 필요하지 않습니다.
 
+코드를 수정하려면 저장소 전체를 받은 뒤 `src`의 C# 파일을 편집하세요. `src/AppSettings.cs`는 설정 처리 코드이며 개인 설정 파일이 아닙니다. 자동 검사 코드는 `tests/RegressionTests.cs`에 있습니다. 빌드 스크립트는 두 폴더의 코드를 함께 컴파일하므로 파일을 맨 위로 꺼낼 필요가 없습니다. 완성된 EXE를 실행할 때는 소스나 검사 폴더가 필요하지 않습니다.
+
 빌드 전에는 이 폴더의 EXE를 트레이 메뉴에서 종료하세요. 실행 중이면 빌드를 중단하여 Windows가 실행 중인 이전 파일의 임시 복사본을 배포 폴더에 남기지 않도록 합니다. 빌드 중에만 임시 출력 폴더를 사용하고, 컴파일이 성공해야 기존 EXE를 교체합니다. 컴파일 실패 시 기존 EXE는 유지합니다. 빌드 스크립트는 다른 사용자 파일을 자동으로 삭제하지 않습니다. 자동 검사는 별도로 `test.ps1`에서 수행하므로 컴파일 성공만으로 배포 준비가 끝났다는 뜻은 아닙니다.
 
 ### 실행
@@ -227,17 +229,20 @@ powershell -ExecutionPolicy Bypass -File .\test.ps1
 
 ```text
 로컬 프로젝트 / GitHub 저장소
-├─ *.cs                   프로그램 소스 코드
+├─ release\
+│  └─ TaskbarMonitor.exe   사용자 실행·공유 파일 하나
+├─ src\                   앱 원본 코드
+│  ├─ *.cs                설정 화면·측정·위젯 등 C# 코드
+│  └─ app.manifest        관리자 권한·DPI·Windows 호환성 선언
+├─ tests\
+│  └─ RegressionTests.cs  자동 검사 코드
+├─ docs\                  README용 화면 이미지
+├─ .github/workflows/     GitHub의 빌드·자동 검사 설정
 ├─ build.ps1              EXE 빌드 스크립트
 ├─ test.ps1               자동 회귀 검사
-├─ app.manifest           관리자 권한·DPI·Windows 호환성 선언
-├─ .github/workflows/     GitHub의 빌드·자동 검사 설정
 ├─ .gitignore             임시 파일·개인 기록 업로드 제외 규칙
 ├─ LICENSE                MIT 라이선스
-├─ docs\                  README용 화면 이미지
-├─ release\
-│  └─ TaskbarMonitor.exe   사용자 실행·공유 파일
 └─ README.md              공개 설명서
 ```
 
-`app.manifest`는 EXE를 빌드할 때 포함되므로 실행할 때 따로 받을 필요가 없습니다. 매번 수정해야 하는 파일도 아닙니다. GitHub workflow는 소스나 EXE가 변경됐을 때 빌드·검사를 자동 실행하며, 사용자 PC에서 위젯을 실행하는 데 필요하지 않습니다. 소스와 검사 파일은 수정·검증할 사람을 위해, `docs`와 README는 사용 설명을 위해 함께 공개합니다. 개인 설정과 `.git` 내부 관리 정보까지 GitHub 파일 목록과 같게 만드는 것은 아닙니다.
+`src/app.manifest`는 EXE를 빌드할 때 포함되므로 실행할 때 따로 받을 필요가 없습니다. 매번 수정해야 하는 파일도 아닙니다. GitHub workflow는 맨 위의 `test.ps1`을 통해 소스나 EXE가 변경됐을 때 빌드·검사를 자동 실행하며, 사용자 PC에서 위젯을 실행하는 데 필요하지 않습니다. 소스와 검사 파일은 수정·검증할 사람을 위해, `docs`와 README는 사용 설명을 위해 함께 공개합니다. 개인 설정과 `.git` 내부 관리 정보까지 GitHub 파일 목록과 같게 만드는 것은 아닙니다.
