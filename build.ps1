@@ -49,6 +49,7 @@ $compilerOptions = @(
     "/out:$outputPath",
     '/reference:System.dll',
     '/reference:System.Core.dll',
+    '/reference:System.Xml.dll',
     '/reference:System.Drawing.dll',
     '/reference:System.Windows.Forms.dll',
     '/reference:System.Web.Extensions.dll',

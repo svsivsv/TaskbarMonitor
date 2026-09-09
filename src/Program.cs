@@ -21,6 +21,13 @@ namespace TaskbarMonitor
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
+            if (args.Length > 0 && String.Equals(args[0], "--repair-startup", StringComparison.OrdinalIgnoreCase))
+            {
+                try { SettingsStore.ApplyStartupSetting(SettingsStore.Load().StartWithWindows); }
+                catch (Exception ex) { LogError(ex); Environment.ExitCode = 1; }
+                return;
+            }
+
             if (args.Length > 1 && String.Equals(args[0], "--trace-layout", StringComparison.OrdinalIgnoreCase))
             {
                 // Read-only startup diagnostic; does not send input to the widget.
@@ -67,6 +74,8 @@ namespace TaskbarMonitor
             {
                 if (!createdNew)
                 {
+                    // A delayed/retried login launch must not steal focus or open Settings.
+                    if (args.Length > 0 && String.Equals(args[0], "--startup", StringComparison.OrdinalIgnoreCase)) return;
                     IntPtr existing = NativeMethods.FindWindow(null, NativeMethods.MessageSinkCaption);
                     if (existing == IntPtr.Zero)
                         existing = NativeMethods.FindWindow(null, "Taskbar Monitor");

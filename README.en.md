@@ -130,7 +130,7 @@ Popup and above-taskbar modes do not bring themselves forward on every refresh. 
 | --- | --- |
 | Auto-fit to space / 공간에 자동 맞춤 | Fill the usable space between weather and Start, dividing it equally among enabled items. Disabling items does not reduce the overall allocated width. |
 | Measurement while hidden / 숨김 중 측정 | Stop completely (`완전히 중지`, default), sample every five seconds (`5초 간격 절전`), or continue normally (`계속 측정`). Stop completely pauses measurement and graph recording while both the widget and Settings are hidden. |
-| Start with Windows / Windows 시작 시 자동 실행 | Start the widget at sign-in using saved settings. |
+| Start with Windows / Windows 시작 시 자동 실행 | Register a current-user scheduled task that starts about 20 seconds after sign-in using saved settings. On failure, retry up to three times at one-minute intervals. Disable and save to remove registration. |
 | Open Settings on manual launch / 직접 실행 시 설정 먼저 표시 | Open Settings first when running the EXE manually. Does not apply to automatic startup. |
 | Transparent taskbar background / 작업표시줄 배경 투명 | In inside mode, show only text and graphs. Disable to show the panel background, border, and item separators. |
 | Full-widget interaction / 위젯 전체 영역 클릭 인식 | Enable clicks and right-clicks across the widget, including empty space. Disable to pass all input through to the taskbar or window underneath. |
@@ -193,6 +193,7 @@ Personal settings are stored at:
 
 - **Update:** exit from the tray menu, replace the existing EXE, and run it again. Settings are stored separately and are not reset merely by replacing the EXE. There is no automatic updater.
 - **Automatic startup:** keep the EXE at the same location. If you move it, run it from its new location, check **Start with Windows**, and select **Save and apply** to register the new path.
+- Automatic startup uses a Windows scheduled task for the current user, without elevation, a stored password, or a network requirement; it also runs on battery. Manage it through the application's checkbox rather than the former Run entry in Windows Startup apps. After upgrading from an older EXE, confirm the checkbox and save to register the new mechanism. The old Run entry is removed only after successful registration. The tray icon and taskbar placement are refreshed after Explorer restarts.
 - **Uninstall:** disable automatic startup and save, exit the application, then delete the EXE. To also remove settings and error records, delete `%LOCALAPPDATA%\TaskbarMonitor` separately. Deleting that folder removes your preferences.
 - **Unreadable settings:** the application starts with defaults and shows a notice at the bottom of Settings. It preserves the original as one `settings.json.unreadable.bak` file without overwriting an existing backup. Backup failures are also reported in the status area.
 - Out-of-range settings, invalid display modes, and duplicate or empty metric entries are normalized at startup. Normal personal preferences are not reset during an update.
@@ -226,7 +227,7 @@ After modifying the source, build and run hardware-independent regression tests:
 powershell -ExecutionPolicy Bypass -File .\test.ps1
 ```
 
-The 22 regression checks cover text layout and pixel boundaries, data refresh in all three display modes, sensor expiration/recovery, taskbar space calculation, graph sample limits and time axes, defaults and invalid settings, hidden measurement, click-through, final-page filling, popup size limits, the fixed Settings footer and its minimum width, and exclusion of private paths/messages from error records. Additional checks validate the EXE-only release folder, exclusion of tracked logs, execution privileges, and Windows compatibility declarations. Result JSON is written only to a temporary folder without manipulating personal settings or the running widget. GitHub Actions tests both the committed EXE and an EXE freshly built from source.
+The 23 regression checks cover text layout and pixel boundaries, data refresh in all three display modes, sensor expiration/recovery, taskbar space calculation, graph sample limits and time axes, defaults and invalid settings, hidden measurement, click-through, final-page filling, popup size limits, the fixed Settings footer and its minimum width, exclusion of private paths/messages from error records, and startup-task delay, retry, and privilege settings. Additional checks validate the EXE-only release folder, exclusion of tracked logs, execution privileges, and Windows compatibility declarations. Result JSON is written only to a temporary folder without manipulating personal settings or the running widget. GitHub Actions tests both the committed EXE and an EXE freshly built from source.
 
 Passing automated tests does not guarantee correct operation on every PC. Real-device checks are still needed for context-menu dismissal, dropdown stability across refreshes, display-mode switching, popup movement/pinning/resizing/window ordering, double-click behavior while click-through is active, sleep/resume, and multiple monitors.
 

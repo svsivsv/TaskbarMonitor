@@ -251,6 +251,15 @@ namespace TaskbarMonitor
             trayIcon.Visible = true;
             trayIcon.ContextMenuStrip = contextMenu;
             trayIcon.MouseClick += TrayIconMouseClick;
+            messageSink.TaskbarRecreated += delegate
+            {
+                if (shuttingDown) return;
+                trayIcon.Visible = false;
+                trayIcon.Visible = true;
+                TaskbarLayoutProbe.NotifyLayoutChanged();
+                if (monitoring && (widgetForm == null || widgetForm.IsDisposed)) StartMonitor();
+                else if (widgetForm != null && !widgetForm.IsDisposed) widgetForm.PositionWidget();
+            };
             UpdateTrayTooltip();
 
             refreshTimer = new Timer();

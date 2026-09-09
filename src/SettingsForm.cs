@@ -474,7 +474,7 @@ namespace TaskbarMonitor
             helpTip.SetToolTip(floatingOrderInput, "일반: 다른 창을 사용하면 자연스럽게 뒤로 감 / 항상 위: 직접 선택한 경우에만 최상단 / 항상 뒤: 다른 일반 창 뒤에 둡니다.");
             helpTip.SetToolTip(autoFitInput, "날씨 버튼과 시작 버튼 사이의 실제 빈 공간에 맞춰 항목 폭을 자동으로 줄입니다.");
             helpTip.SetToolTip(hiddenMeasurementInput, "위젯과 설정창이 모두 숨겨졌을 때만 적용됩니다. 완전히 중지(기본)는 하드웨어 측정과 그래프 기록을 쉬게 합니다. 5초 간격은 숨김 중에도 듬성듬성 기록할 때, 계속 측정은 기록을 끊지 않을 때만 사용하세요.");
-            helpTip.SetToolTip(startupInput, "Windows 로그인 후 저장된 설정으로 위젯을 자동 실행합니다.");
+            helpTip.SetToolTip(startupInput, "현재 사용자로 로그인한 뒤 약 20초 후 실행하는 Windows 예약 작업을 등록합니다. 실행 실패 시 1분 간격으로 최대 3회 재시도합니다. 관리자 권한이나 암호 저장은 필요하지 않습니다. 끄고 저장하면 등록을 제거합니다.");
             helpTip.SetToolTip(showSettingsInput, "EXE를 직접 실행했을 때 위젯보다 설정창을 먼저 엽니다. Windows 자동 시작에는 적용되지 않습니다.");
             helpTip.SetToolTip(seamlessInput, "작업표시줄 안쪽 모드에서만 적용됩니다. 켜면 위젯 배경을 투명하게 해 글자와 그래프만 보이고, 끄면 패널 배경·테두리·항목 구분선을 표시합니다.");
             helpTip.SetToolTip(widgetInteractionInput, "켜면 위젯 전체에서 클릭·우클릭·더블클릭과 팝업 이동을 사용할 수 있습니다. 끄면 작업 관리자 실행을 포함한 모든 위젯 입력이 차단되고 뒤 창으로 통과합니다. 다시 켤 때는 트레이 아이콘의 우클릭 메뉴를 사용하세요.");

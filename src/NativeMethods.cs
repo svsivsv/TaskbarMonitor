@@ -40,6 +40,7 @@ namespace TaskbarMonitor
         public static readonly int WM_APP_QUERY_CPU_TEMPERATURE = (int)RegisterWindowMessage("TaskbarMonitor.QueryCpuTemperature.svsivsv.v1");
         public static readonly int WM_APP_QUERY_GPU_TEMPERATURE = (int)RegisterWindowMessage("TaskbarMonitor.QueryGpuTemperature.svsivsv.v1");
         public const string MessageSinkCaption = "TaskbarMonitor.MessageSink.1";
+        internal static readonly int WM_TASKBAR_CREATED = (int)RegisterWindowMessage("TaskbarCreated");
         public static readonly IntPtr HWND_BROADCAST = new IntPtr(0xffff);
 
         [StructLayout(LayoutKind.Sequential)]
@@ -302,6 +303,7 @@ namespace TaskbarMonitor
     internal sealed class MessageSink : NativeWindow, IDisposable
     {
         public event EventHandler ShowSettingsRequested;
+        public event EventHandler TaskbarRecreated;
 
         public MessageSink()
         {
@@ -313,6 +315,11 @@ namespace TaskbarMonitor
 
         protected override void WndProc(ref Message message)
         {
+            if (message.Msg == NativeMethods.WM_TASKBAR_CREATED)
+            {
+                EventHandler handler = TaskbarRecreated;
+                if (handler != null) handler(this, EventArgs.Empty);
+            }
             if (message.Msg == NativeMethods.WM_APP_SHOW_SETTINGS)
             {
                 EventHandler handler = ShowSettingsRequested;

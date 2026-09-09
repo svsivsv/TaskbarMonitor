@@ -17,6 +17,7 @@ namespace TaskbarMonitor
             {
                 result["temperatureExpiresAndRecovers"] = ValidateTemperatureCache();
                 result["errorLogsExcludePrivateText"] = ValidateErrorLogPrivacy();
+                result["startupTaskPolicy"] = ValidateStartupTaskPolicy();
                 result["productionTextLayout"] = ValidateTextLayout();
                 result["textPixelClipping"] = ValidateTextPixels();
                 result["dataRefreshPreservesControl"] = ValidateDataRefresh();
@@ -85,6 +86,24 @@ namespace TaskbarMonitor
                 record.Contains("InvalidOperationException") && record.Contains("FileNotFoundException") &&
                 record.Contains("Code: 0x") && record.Contains("RegressionTests.ValidateErrorLogPrivacy") &&
                 Program.FormatErrorRecord(null) == String.Empty;
+        }
+
+        private static bool ValidateStartupTaskPolicy()
+        {
+            var xml = new System.Xml.XmlDocument();
+            const string executable = @"E:\Apps & Tools\Monitor\TaskbarMonitor.exe";
+            xml.LoadXml(StartupRegistration.BuildTaskXml(executable, "S-1-5-21-1-2-3-1001"));
+            var ns = new System.Xml.XmlNamespaceManager(xml.NameTable);
+            ns.AddNamespace("t", "http://schemas.microsoft.com/windows/2004/02/mit/task");
+            Func<string, string> value = delegate(string path) { return xml.SelectSingleNode("/t:Task/" + path, ns).InnerText; };
+            return value("t:Actions/t:Exec/t:Command") == executable &&
+                value("t:Actions/t:Exec/t:Arguments") == "--startup" &&
+                value("t:Triggers/t:LogonTrigger/t:Delay") == "PT20S" &&
+                value("t:Principals/t:Principal/t:LogonType") == "InteractiveToken" &&
+                value("t:Principals/t:Principal/t:RunLevel") == "LeastPrivilege" &&
+                value("t:Settings/t:RestartOnFailure/t:Count") == "3" &&
+                value("t:Settings/t:ExecutionTimeLimit") == "PT0S" &&
+                value("t:Settings/t:DisallowStartIfOnBatteries") == "false";
         }
 
         private static bool ValidateSlotStabilization()

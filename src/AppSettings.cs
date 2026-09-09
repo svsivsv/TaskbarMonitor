@@ -384,12 +384,11 @@ namespace TaskbarMonitor
 
         public static void ApplyStartupSetting(bool enabled)
         {
+            // Do not remove the previous registration unless the replacement succeeded.
+            StartupRegistration.Apply(enabled, System.Windows.Forms.Application.ExecutablePath);
             using (RegistryKey key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run"))
             {
-                if (enabled)
-                    key.SetValue(RunValueName, "\"" + System.Windows.Forms.Application.ExecutablePath + "\" --startup");
-                else
-                    key.DeleteValue(RunValueName, false);
+                key.DeleteValue(RunValueName, false);
             }
         }
     }
